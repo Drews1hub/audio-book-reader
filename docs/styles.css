@@ -73,3 +73,5 @@ li.ch.new { animation:flash 1.6s ease-out; }
 footer { max-width:780px; margin:0 auto; padding:8px 20px 40px; text-align:center; font-size:13px; color:var(--muted); }
 footer a { color:var(--accent-link); }
 @media (max-width:480px) { .brand { font-size:17px; gap:8px; } .brand-icon { width:28px; height:28px; font-size:17px; } .topbar-note { font-size:12px; } }
+.resume { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; padding:14px 16px; border-radius:16px; background:var(--accent-soft); }
+.resume span { flex:1; min-width:200px; font-size:15px; }

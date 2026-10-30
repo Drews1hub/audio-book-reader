@@ -13,6 +13,12 @@ const SOURCES = {
 let file = null, objectUrl = null, audioHandle = null, whisper = null;
 let book = null;            // { title, duration, chapters, source }
 let stopRequested = false, busy = false, saveTimer = null;
+let playable = true;        // false when this browser's own player can't open the format (chapters still work)
+
+// Chrome gives some files (.m4b especially) an empty type, which can stop the player opening them.
+const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', m4b: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac',
+  flac: 'audio/flac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav' };
+const mimeFor = (f) => f.type || MIME[(f.name.split('.').pop() || '').toLowerCase()] || '';
 
 const storeKey = (f) => `abr:v1:${f.name}:${f.size}:${f.lastModified}`;
 const store = {
@@ -28,7 +34,10 @@ const drop = $('drop');
 drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); };
+drop.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); };
+// A file dropped anywhere else would make the browser leave the page and open it; load it here instead.
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => { e.preventDefault(); e.dataTransfer?.files[0] && load(e.dataTransfer.files[0]); });
 
 function showProgress(phase, detail = '', value = null) {
   $('progress').hidden = false;
@@ -38,34 +47,51 @@ function showProgress(phase, detail = '', value = null) {
 }
 const mins = (ms) => (ms < 90e3 ? 'under a minute' : `about ${Math.round(ms / 60e3)} min`);
 
+const showError = (phase, detail) => { showProgress(phase, detail, 0); $('stop').hidden = true; };
+
+// Wait for the browser's own player to report a length; 0 if it can't open the file.
+function playerDuration(el) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(0), 10000);
+    el.onloadedmetadata = () => { clearTimeout(t); resolve(el.duration); };
+    el.onerror = () => { clearTimeout(t); resolve(0); };
+  });
+}
+
 async function load(f) {
   if (busy) return;
-  await release();
-  file = f;
-  const el = $('audio');
-  objectUrl = URL.createObjectURL(f);
-  el.src = objectUrl;
-  showProgress('Opening your audiobook…');
-  const duration = await new Promise((resolve) => {
-    el.onloadedmetadata = () => resolve(el.duration);
-    el.onerror = () => resolve(0);
-  });
-  if (!isFinite(duration) || duration <= 0) {
-    showProgress("This browser can't read that file.", 'Try an MP3, M4A/M4B, FLAC, OGG or WAV file.', 0);
-    return;
-  }
-  const stem = f.name.replace(/\.[^.]+$/, '');
-  const saved = store.get(storeKey(f));
-  if (saved?.chapters?.length) {
-    book = { ...saved, duration };
-    $('progress').hidden = true;
-    return showPlayer();
-  }
-  book = { title: stem, duration, chapters: [], source: null };
   busy = true;
   try {
-    showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
-    audioHandle = await openAudio(f);
+    await release();
+    file = f;
+    const el = $('audio');
+    objectUrl = URL.createObjectURL(new Blob([f], { type: mimeFor(f) }));
+    el.src = objectUrl;
+    $('stop').hidden = true;
+    showProgress('Opening your audiobook…');
+    let duration = await playerDuration(el);
+    playable = isFinite(duration) && duration > 0;
+    if (!playable) {
+      // The browser can't play this format, but the audio engine usually can still read it.
+      showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
+      audioHandle = await openAudio(f);
+      duration = await audioHandle.duration();
+    }
+    if (!duration) {
+      return showError("Couldn't read that file.", 'It may not be an audiobook, or it may be damaged. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.');
+    }
+    const stem = f.name.replace(/\.[^.]+$/, '');
+    const saved = store.get(storeKey(f));
+    if (saved && (saved.chapters?.length || saved.scanned > 0)) {
+      book = { ...saved, duration };
+      $('progress').hidden = true;
+      return showPlayer();
+    }
+    book = { title: stem, duration, chapters: [], source: null };
+    if (!audioHandle) {
+      showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
+      audioHandle = await openAudio(f);
+    }
     const info = await audioHandle.probe();
     if (info.tags.title) book.title = info.tags.title;
     if (info.chapters.length) {
@@ -74,20 +100,38 @@ async function load(f) {
     } else {
       await run($('mode').value);
     }
+    $('progress').hidden = true; persist(); showPlayer();
   } catch (e) {
-    showProgress('Something went wrong.', String(e.message || e), 0);
+    showError('Something went wrong.', String(e.message || e));
   } finally {
     busy = false;
   }
-  if (book.chapters.length) { $('progress').hidden = true; persist(); showPlayer(); }
 }
 
-async function run(mode) {
+// Keep the computer awake while listening (only works while this tab is visible).
+let wakeLock = null;
+async function stayAwake(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch { wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => { if (busy && document.visibilityState === 'visible') stayAwake(true); });
+
+async function run(mode, from = 0, initial = []) {
   stopRequested = false;
   $('stop').hidden = false;
+  $('resumeBox').hidden = true;
+  book.mode = mode;
+  book.scanned = from;
+  stayAwake(true);
+  try { await listenRun(mode, from, initial); } finally { stayAwake(false); }
+}
+
+async function listenRun(mode, from, initial) {
   if (mode !== 'pauses') {
     whisper = new Whisper();
-    const model = $('model').value;
+    const model = book.model = (from > 0 && book.model) || $('model').value;
     const sizes = new Map();
     whisper.onDownload = ({ file: name, loaded, total }) => {
       sizes.set(name, [loaded, total]);
@@ -107,8 +151,9 @@ async function run(mode) {
   }
   let live = true;
   const chapters = await listen({
-    audio: audioHandle, duration: book.duration, mode, whisper,
+    audio: audioHandle, duration: book.duration, mode, whisper, from, initial,
     shouldStop: () => stopRequested,
+    onScanned: (t, list) => { book.scanned = t; if (mode !== 'pauses') book.chapters = list; persist(); },
     onProgress: ({ done, eta, text }) =>
       showProgress(text, eta ? `Roughly ${mins(eta)} left. Chapters appear below as they are heard.` : 'Chapters appear below as they are heard.', done),
     onChapters: (list, added) => {
@@ -119,18 +164,32 @@ async function run(mode) {
   });
   whisper?.stop(); whisper = null;
   book.chapters = chapters;
+  if (stopRequested) { $('stop').hidden = true; return; }   // partial: offered as "Continue listening"
+  book.scanned = book.duration;
   if (mode === 'pauses') book.source = 'pauses';
-  else if (!chapters.length && !stopRequested) {
+  else if (!chapters.length) {
     showProgress('No chapter announcements heard.', 'Marking long pauses instead.');
     book.chapters = await listen({ audio: audioHandle, duration: book.duration, mode: 'pauses', shouldStop: () => stopRequested,
       onProgress: ({ done, text }) => showProgress(text, 'Marking pauses…', done), onChapters: () => {} });
     book.source = 'pauses';
   } else book.source = 'speech';
   if (book.chapters.length && book.chapters[0].start > 1) book.chapters.unshift({ start: 0, title: 'Opening' });
+  book.scanned = book.duration;
   $('stop').hidden = true;
 }
 
 $('stop').onclick = () => { stopRequested = true; $('stop').hidden = true; $('phase').textContent = 'Stopping…'; };
+
+$('resume').onclick = async () => {
+  if (busy || !file) return;
+  busy = true;
+  try {
+    audioHandle ??= await openAudio(file);
+    await run(book.mode || $('mode').value, book.scanned || 0, book.chapters);
+  } catch (e) { showError('Something went wrong.', String(e.message || e)); }
+  busy = false;
+  $('progress').hidden = true; persist(); showPlayer();
+};
 
 async function release() {
   stopRequested = true;
@@ -142,15 +201,27 @@ async function release() {
 
 // ---------- player + chapter list ----------
 function persist() {
-  if (file && book) store.set(storeKey(file), { title: book.title, chapters: book.chapters, source: book.source });
+  if (file && book) {
+    store.set(storeKey(file), { title: book.title, chapters: book.chapters, source: book.source,
+      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model });
+  }
 }
 function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 400); }
 
 function showPlayer(live = false, flash = -1) {
   $('player').hidden = false;
   $('title').textContent = book.title;
-  $('source').textContent = live ? 'Listening to the book. Chapters appear as they are heard…' : SOURCES[book.source] || '';
+  $('audio').hidden = !playable;
+  $('controls').hidden = !playable;
+  $('source').textContent = !playable ? "Your browser can't play this file type, so there is no player here, but the chapters are found and can be saved below."
+    : live ? 'Listening to the book. Chapters appear as they are heard…' : SOURCES[book.source] || '';
   $('relisten').hidden = live;
+  const unfinished = !live && book.scanned !== undefined && book.scanned < book.duration - 1;
+  $('resumeBox').hidden = !unfinished;
+  if (unfinished) {
+    $('resumeText').textContent = `Listened to ${fmtTime(book.scanned)} of ${fmtTime(book.duration)} so far. The chapters found up to there are below.`;
+    $('resume').textContent = `Continue listening from ${fmtTime(book.scanned)}`;
+  }
   renderChapters(flash);
 }
 
@@ -205,7 +276,7 @@ $('relisten').onclick = async () => {
     audioHandle ??= await openAudio(file);
     book.chapters = [];
     $('player').hidden = false;
-    await run($('mode').value);
+    await run($('mode').value, 0, []);
   } catch (e) { showProgress('Something went wrong.', String(e.message || e), 0); }
   busy = false;
   $('progress').hidden = true; persist(); showPlayer();

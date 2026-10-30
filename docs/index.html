@@ -34,8 +34,8 @@
       <div class="control-row">
         <label class="field">How to listen
           <select id="mode">
-            <option value="thorough">Thorough: listen to everything (best, slowest)</option>
-            <option value="quick">Quick: listen after each pause</option>
+            <option value="quick" selected>Quick: listen after each pause (best for long books)</option>
+            <option value="thorough">Thorough: listen to everything (hours for a long book)</option>
             <option value="pauses">Pauses only: no speech recognition</option>
           </select>
         </label>
@@ -47,7 +47,9 @@
         </label>
       </div>
       <label class="check" id="gpuRow" hidden><input type="checkbox" id="gpu"> Try GPU acceleration (experimental, bigger download)</label>
-      <p class="muted small">English audiobooks. The speech model downloads once and is cached by your browser. Keep this tab open and in front while it listens.</p>
+      <p class="muted small">English audiobooks. A 10-hour book takes roughly 10–20 minutes in Quick mode, or 2–3 hours in Thorough mode
+        (use Thorough if chapters start without a pause, e.g. after music). Keep this tab open while it listens; if it gets
+        interrupted, open the same file again and it picks up where it stopped.</p>
     </section>
 
     <section class="tile" id="progress" hidden>
@@ -58,8 +60,12 @@
 
     <section class="tile" id="player" hidden>
       <div class="row"><h2 id="title"></h2><button id="relisten" class="ghost">Listen again</button></div>
+      <div class="resume" id="resumeBox" hidden>
+        <span id="resumeText">It stopped partway through.</span>
+        <button id="resume" class="primary">Continue listening</button>
+      </div>
       <audio id="audio" controls preload="metadata"></audio>
-      <div class="row wrap">
+      <div class="row wrap" id="controls">
         <button id="prev">⏮ Previous</button><button id="next">Next ⏭</button>
         <button id="mark" class="ghost">＋ Mark chapter here</button>
         <label class="field inline">Speed <select id="speed"><option>0.8</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label>

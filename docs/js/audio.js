@@ -34,6 +34,16 @@ export async function openAudio(file) {
 
   return {
     ext,
+    /** Length in seconds, read by ffmpeg (works for formats the browser's own player can't open). */
+    async duration() {
+      let text = '';
+      const onLog = ({ message }) => { text += message + '\n'; };
+      f.on('log', onLog);
+      try { await f.exec(['-i', input]); } catch { /* no output file is expected to "fail" */ }
+      f.off('log', onLog);
+      const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+      return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+    },
     /** Chapters and tags already inside the file. */
     async probe() {
       try {

@@ -27,7 +27,8 @@ export class Whisper {
   load(model, gpu) { return this._call('load', { type: 'load', model, gpu }); }
   transcribe(audio, offset) {
     const id = this.nextId++;
-    return this._call(id, { type: 'transcribe', id, audio, offset }, [audio.buffer]);
+    // Copied, not transferred: the caller still needs the samples (e.g. to measure pauses) afterwards.
+    return this._call(id, { type: 'transcribe', id, audio, offset });
   }
   stop() { this.worker.terminate(); }
 }
@@ -37,8 +38,9 @@ export class Whisper {
  * A window "owns" headings that start inside its step; the overlap lets a heading at the edge finish being spoken.
  */
 export async function listen({ audio, duration, mode, whisper, onProgress, onChapters, shouldStop,
-  step = 600, overlap = 20 }) {
-  const chapters = [];
+  onScanned = () => {}, from = 0, initial = [], step = 600, overlap = 20 }) {
+  // `from`/`initial` resume an earlier run; `onScanned(t)` reports that everything before t has been listened to.
+  const chapters = initial.map((c) => ({ ...c }));
   const started = Date.now();
   // Long pauses are shortened before recognition (they break Whisper's timing); times are mapped back afterwards.
   const hear = async (clip, offset) => {
@@ -69,16 +71,17 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
     chapters.push(a);
     onChapters([...chapters], a);
   };
-  let lastPause = 0;
+  let lastPause = chapters.length ? chapters[chapters.length - 1].start : 0;
 
-  for (let t = 0; t < duration && !shouldStop(); t += step) {
+  for (let t = from; t < duration && !shouldStop(); t += step) {
     const last = t + step >= duration;
     const done = t / duration;
-    const eta = done > 0.02 ? ((Date.now() - started) / done) * (1 - done) : null;
+    const part = (t - from) / (duration - from);
+    const eta = part > 0.02 ? ((Date.now() - started) / part) * (1 - part) : null;
     onProgress({ done, eta, text: `Listening… ${Math.floor(t / 60)} of ${Math.ceil(duration / 60)} min` });
 
     const samples = await audio.decode(t, step + overlap);
-    if (!samples.length) continue;
+    if (!samples.length) { if (!shouldStop()) onScanned(Math.min(duration, t + step), [...chapters]); continue; }
 
     if (mode === 'thorough') {
       (await headings(samples, t)).forEach((a) => add(a, t, last));
@@ -101,9 +104,10 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
         }
       }
     }
+    if (!shouldStop()) onScanned(Math.min(duration, t + step), [...chapters]);
   }
   if (mode === 'pauses') {
-    chapters.unshift({ start: 0, title: '' });
+    if (!chapters.length || chapters[0].start > 0) chapters.unshift({ start: 0, title: '' });
     chapters.forEach((c, i) => { c.title = `Chapter ${i + 1}`; });
   }
   return chapters;

@@ -18,17 +18,22 @@ minutes at a time (the file is read in place, never copied into memory), and Whi
 Libraries are vendored in `docs/vendor/`; only the speech model weights are fetched from Hugging Face on first use
 (40 MB tiny / 75 MB base) and then cached by the browser.
 
-Modes: **Thorough** transcribes the whole book; **Quick** transcribes ~15 s after each pause; **Pauses only**
-marks long pauses without speech recognition. Long silences are shortened before recognition (they break Whisper's
-word timing) and real pauses are measured from the audio itself, so titles stop where the narrator pauses.
-Chapters are saved in the browser per file (pick the same file again and they come back).
+Modes: **Quick** (default) transcribes ~15 s after each pause, so a 10-hour book takes roughly 10–20 minutes;
+**Thorough** transcribes the whole book (about 2–3 hours for 10 hours of audio, measured at 3–4.5× real time on one
+CPU core) and also catches headings that start without a pause, e.g. right after music; **Pauses only** marks long
+pauses without speech recognition. Long silences are shortened before recognition (they break Whisper's word timing)
+and real pauses are measured from the audio itself, so titles stop where the narrator pauses.
+
+Chapters and how far it has listened are saved in the browser per file: if the tab closes or you press Stop, pick the
+same file again and choose *Continue listening*. Files the browser can't play itself (e.g. WMA) are still read by
+ffmpeg, so chapters can be found and saved even without the player.
 
 Publish: repository **Settings → Pages → Build and deployment → Deploy from a branch**, pick the branch and the
 `/docs` folder. Try it locally with `cd docs && python3 -m http.server`.
 
-Speed: recognition runs on the CPU in one thread (GitHub Pages can't enable multi-threading), so Thorough mode on a
-long book takes a while; Quick mode is much faster. The GPU option (WebGPU) is experimental.
-Tests for the detection logic: `node --test tests/chapters.test.mjs`.
+Recognition runs on the CPU in one thread (GitHub Pages can't enable multi-threading). The GPU option (WebGPU) is
+experimental and untested.
+Tests: `node --test tests/*.test.mjs`.
 
 Licenses: ffmpeg core is GPL-2.0-or-later, transformers.js Apache-2.0, ONNX Runtime MIT (see `docs/vendor/LICENSE-*`).
 
