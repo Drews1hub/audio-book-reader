@@ -1,4 +1,5 @@
 import { openAudio } from './js/audio.js';
+import { formatFileSize } from './js/file-info.js';
 import { Whisper, listen } from './js/listen.js';
 import { fmtTime, toCue, toFfmetadata } from './js/chapters.js';
 
@@ -96,7 +97,7 @@ async function load(f) {
     await release();
     file = f;
     const ext = (f.name.split('.').pop() || '').toLowerCase();
-    const about = `${f.name} · ${(f.size / 1e6).toFixed(0)} MB`;
+    const about = `${f.name} · ${formatFileSize(f.size)}`;
     if (ext === 'aax' || ext === 'aaxc') {
       return showError("Audible files can't be opened here.",
         `${about}. Audible .${ext} files are copy-protected, so only Audible's own apps can play them. Use an MP3, M4B, M4A, FLAC, OGG or WAV file.`);
@@ -107,20 +108,22 @@ async function load(f) {
     }
     const el = $('audio');
     objectUrl = URL.createObjectURL(new Blob([f], { type: mimeFor(f) }));
+    const metadata = playerDuration(el);
     el.src = objectUrl;
     $('stop').hidden = true;
     showProgress('Opening your audiobook…');
-    let duration = await playerDuration(el);
+    let duration = await metadata;
     playable = isFinite(duration) && duration > 0;
     if (!playable) {
       // The browser can't play this format, but the audio engine usually can still read it.
       showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
       audioHandle = await openAudio(f);
-      duration = await audioHandle.duration();
+      duration = await audioHandle.duration(() => showProgress('Checking the audio itself…',
+        'The file has no readable duration. Measuring it may take a while for a long book.'));
     }
-    if (!duration) {
+    if (!Number.isFinite(duration) || duration <= 0) {
       return showError("Couldn't read that file.",
-        `${about}${audioHandle?.lastError ? ` · ${audioHandle.lastError}` : ''}. It may not be an audio file, or it may be damaged. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.`);
+        `${about}${audioHandle?.lastError ? ` · ${audioHandle.lastError}` : ''}. The audio engine loaded, but could not read this file. Make sure it is the audio file itself and is fully downloaded to your computer. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.`);
     }
     const stem = f.name.replace(/\.[^.]+$/, '');
     const saved = store.get(storeKey(f));

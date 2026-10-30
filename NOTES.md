@@ -39,3 +39,13 @@ cd docs && python3 -m http.server # then open http://localhost:8000 (Chrome)
 - Real narrator audiobooks haven't been tested yet (all tests used a computer voice).
 - Books made of many separate audio files (one per chapter) aren't supported yet.
 - WebGPU option is untested.
+
+## Intake improvements (Codex)
+- File sizes now use bytes/KB/MB/GB rather than rounding small files to 0 MB.
+- Audio engine initialization failures have a separate message and can retry on the next selection.
+- When neither the browser nor ffmpeg's metadata provides a duration, decode to a null output to measure it.
+  This stores no decoded book, but may take time on long books; the UI explains the delay.
+- Register browser metadata listeners before assigning the audio URL.
+- `tests/audio.test.mjs` exercises the actual vendored WASM core through a Node worker adapter, including a
+  simulated missing-duration log, invalid audio, and engine-load retry. All 13 JS tests pass.
+  This is not a browser end-to-end test; the user's failing file has not been tested. Python server files unchanged.
