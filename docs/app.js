@@ -159,9 +159,12 @@ async function load(src, name) {
       : [{ file: first, start: 0, duration }];
     const key = storeKey(src, sourceName);
     const stem = multi ? sourceName : first.name.replace(/\.[^.]+$/, '');
-    const saved = store.get(key);
+    let saved = store.get(key);
+    // Older versions silently fell back to marking pauses when no headings were heard. Those results (pause guesses
+    // from a run that was meant to listen) are wrong, so never bring them back.
+    if (saved?.source === 'pauses' && saved.mode && saved.mode !== 'pauses') saved = null;
     if (saved && (saved.chapters?.length || saved.scanned > 0)) {
-      book = { ...saved, duration, key };
+      book = { ...saved, duration, key, restoredAt: saved.savedAt || true };
       $('progress').hidden = true;
       return showPlayer();
     }
@@ -202,6 +205,7 @@ async function run(mode, from = 0, initial = []) {
   $('resumeBox').hidden = true;
   book.mode = mode;
   book.scanned = from;
+  delete book.restoredAt;
   stayAwake(true);
   try { await listenRun(mode, from, initial); } finally { stayAwake(false); }
 }
@@ -291,7 +295,8 @@ async function release() {
 function persist() {
   if (book?.key) {
     store.set(book.key, { title: book.title, chapters: book.chapters, source: book.source,
-      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, heard: book.heard, note: book.note });
+      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, heard: book.heard, note: book.note,
+      savedAt: Date.now() });
   }
 }
 function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 400); }
@@ -307,8 +312,10 @@ function showPlayer(live = false, flash = -1) {
   $('exNote').textContent = many
     ? `“One audiobook file with chapters” joins your ${timeline.length} files into a single audiobook (no re-encoding) with the chapter titles written in, so players show them as track titles. It builds the whole book in memory, so very large books may fail; use the other formats then.`
     : '“Audio with chapters” keeps the same audio and writes the chapter titles into the file, so players show them as track titles. It builds the file in memory, so very large books (over ~1 GB) may fail; use the other formats then.';
-  $('source').textContent = !playable ? "Your browser can't play this file type, so there is no player here, but the chapters are found and can be saved below."
-    : live ? 'Listening to the book. Chapters appear as they are heard…' : SOURCES[book.source] || '';
+  const restored = book.restoredAt && !live
+    ? `Loaded the result saved ${book.restoredAt === true ? 'last time' : new Date(book.restoredAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. Press “Listen again” to start over. ` : '';
+  $('source').textContent = restored + (!playable ? "Your browser can't play this file type, so there is no player here, but the chapters are found and can be saved below."
+    : live ? 'Listening to the book. Chapters appear as they are heard…' : SOURCES[book.source] || '');
   $('relisten').hidden = live;
   const unfinished = !live && book.scanned !== undefined && book.scanned < book.duration - 1;
   $('resumeBox').hidden = !unfinished;
