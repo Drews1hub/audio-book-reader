@@ -28,6 +28,10 @@ Libraries are vendored in `docs/vendor/` (no CDN); only the Whisper model weight
   `audio.js` treats the parts as one timeline, `app.js` plays them back to back (`timeline`, `seekTo`, `loadPart`),
   and the export joins them into one file with the chapters written in.
 - A web page can't change the user's original file; "Save" writes a new copy to Downloads. Say so in the UI.
+- Never fill the chapter list with pause guesses on its own: on the owner's real book it heard no headings and the
+  silent fallback produced "Chapter 1, 2, …" in the wrong places. Now it says so (`noneBox`) and shows
+  "What it heard after each pause" (`onHeard` in listen.js) so we can see what the narrator actually says.
+- Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test
 ```bash

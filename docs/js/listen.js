@@ -38,7 +38,9 @@ export class Whisper {
  * A window "owns" headings that start inside its step; the overlap lets a heading at the edge finish being spoken.
  */
 export async function listen({ audio, duration, mode, whisper, onProgress, onChapters, shouldStop,
-  onScanned = () => {}, from = 0, initial = [], step = 600, overlap = 20 }) {
+  onScanned = () => {}, onHeard = () => {}, from = 0, initial = [], step = 600, overlap = 20 }) {
+  // `onHeard({ start, text })` reports the first words after each long pause, so people can see what the
+  // narrator says where chapters ought to start (and why none were found, if so).
   // `from`/`initial` resume an earlier run; `onScanned(t)` reports that everything before t has been listened to.
   const chapters = initial.map((c) => ({ ...c }));
   const started = Date.now();
@@ -53,9 +55,19 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
       silences: findSilences(clip, RATE, { minSilence: 0.4 }).map((s) => ({ start: offset + s.start, end: offset + s.end })),
     };
   };
-  const headings = async (clip, offset) => {
+  const reportHeard = (words, points, windowEnd) => {
+    for (const p of points) {
+      if (p >= windowEnd) break;
+      const text = words.filter((w) => w.start >= p - 0.3 && w.start < p + 8).slice(0, 12).map((w) => w.word).join(' ');
+      if (text) onHeard({ start: Math.round(p * 10) / 10, text });
+    }
+  };
+  // `startsAfterPause`: the clip begins right after a long pause (Quick mode, or the start of the book).
+  const headings = async (clip, offset, { startsAfterPause = false, windowEnd = Infinity } = {}) => {
     const { words, silences } = await hear(clip, offset);
-    return findAnnouncements(words, { silences });
+    const points = silences.filter((s) => s.end - s.start >= 1.0).map((s) => s.end);
+    reportHeard(words, startsAfterPause ? [offset + 0.3] : points, windowEnd);
+    return findAnnouncements(words, { silences, startsAfterPause });
   };
   const add = (a, windowStart, last) => {
     if (a.start >= windowStart + step && !last) return;
@@ -84,7 +96,7 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
     if (!samples.length) { if (!shouldStop()) onScanned(Math.min(duration, t + step), [...chapters]); continue; }
 
     if (mode === 'thorough') {
-      (await headings(samples, t)).forEach((a) => add(a, t, last));
+      (await headings(samples, t, { startsAfterPause: t === 0, windowEnd: last ? Infinity : t + step })).forEach((a) => add(a, t, last));
     } else if (mode === 'quick') {
       const starts = findSilences(samples, RATE, { minSilence: 1.0 }).map((s) => s.end);
       if (t === 0) starts.unshift(0);
@@ -93,7 +105,7 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
         const from = Math.max(0, rel - 0.3);
         const clip = samples.slice(Math.floor(from * RATE), Math.floor((from + 15) * RATE));
         if (clip.length < RATE) continue;
-        (await headings(clip, t + from)).forEach((a) => add(a, t, last));
+        (await headings(clip, t + from, { startsAfterPause: true })).forEach((a) => add(a, t, last));
       }
     } else {
       for (const s of findSilences(samples, RATE, { minSilence: 2.0 })) {

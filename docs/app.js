@@ -5,6 +5,8 @@ import { fmtTime, toCue, toFfmetadata } from './js/chapters.js';
 
 const $ = (id) => document.getElementById(id);
 const SOURCES = {
+  none: '',
+  failed: '',
   speech: 'Found by listening: each one was announced by the narrator. Rename any you like.',
   pauses: 'Guessed from long pauses. Rename them as you listen.',
   embedded: 'These chapters were already in the file.',
@@ -221,15 +223,28 @@ async function listenRun(mode, from, initial) {
       await whisper.load(model, $('gpu').checked);
     } catch (e) {
       whisper.stop(); whisper = null;
-      showProgress('Speech model unavailable.', `${e.message}. Falling back to pauses.`);
-      mode = 'pauses';
+      // Say so plainly instead of quietly guessing from pauses.
+      book.note = `The speech model could not be loaded (${e.message}), so nothing was listened to. Check your connection and press “Listen again”.`;
+      book.source = 'failed';
+      book.chapters = [];
+      book.scanned = book.duration;
+      $('stop').hidden = true;
+      return;
     }
   }
+  book.note = '';
+  if (from === 0) { book.heard = []; $('heardList').innerHTML = ''; }
+  book.heard ??= [];
   let live = true;
   const chapters = await listen({
     audio: audioHandle, duration: book.duration, mode, whisper, from, initial,
     shouldStop: () => stopRequested,
     onScanned: (t, list) => { book.scanned = t; if (mode !== 'pauses') book.chapters = list; persist(); },
+    onHeard: (h) => {
+      if (book.heard.length >= 2000) return;   // plenty to see what the narrator says; keeps saved data small
+      book.heard.push(h);
+      addHeard(h);
+    },
     onProgress: ({ done, eta, text }) =>
       showProgress(text, eta ? `Roughly ${mins(eta)} left. Chapters appear below as they are heard.` : 'Chapters appear below as they are heard.', done),
     onChapters: (list, added) => {
@@ -243,12 +258,8 @@ async function listenRun(mode, from, initial) {
   if (stopRequested) { $('stop').hidden = true; return; }   // partial: offered as "Continue listening"
   book.scanned = book.duration;
   if (mode === 'pauses') book.source = 'pauses';
-  else if (!chapters.length) {
-    showProgress('No chapter announcements heard.', 'Marking long pauses instead.');
-    book.chapters = await listen({ audio: audioHandle, duration: book.duration, mode: 'pauses', shouldStop: () => stopRequested,
-      onProgress: ({ done, text }) => showProgress(text, 'Marking pauses…', done), onChapters: () => {} });
-    book.source = 'pauses';
-  } else book.source = 'speech';
+  else if (!chapters.length) book.source = 'none';   // explained on the page, with a choice of what to do next
+  else book.source = 'speech';
   if (book.chapters.length && book.chapters[0].start > 1) book.chapters.unshift({ start: 0, title: 'Opening' });
   book.scanned = book.duration;
   $('stop').hidden = true;
@@ -280,7 +291,7 @@ async function release() {
 function persist() {
   if (book?.key) {
     store.set(book.key, { title: book.title, chapters: book.chapters, source: book.source,
-      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model });
+      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, heard: book.heard, note: book.note });
   }
 }
 function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 400); }
@@ -305,6 +316,18 @@ function showPlayer(live = false, flash = -1) {
     $('resumeText').textContent = `Listened to ${fmtTime(book.scanned)} of ${fmtTime(book.duration)} so far. The chapters found up to there are below.`;
     $('resume').textContent = `Continue listening from ${fmtTime(book.scanned)}`;
   }
+  // Listened, but no "Chapter …" was heard: explain and let them choose, rather than inventing chapters.
+  const none = !live && !unfinished && (book.source === 'none' || book.source === 'failed');
+  $('noneBox').hidden = !none;
+  if (none) {
+    $('noneText').textContent = book.source === 'failed' ? book.note
+      : `It listened ${book.mode === 'thorough' ? 'to the whole book' : `after ${book.heard?.length || 0} pauses`} but never heard a chapter `
+        + 'announcement like “Chapter One” or “Twelve”. Open “What it heard” below to see what the narrator says at those points. '
+        + (book.mode === 'thorough' ? 'You can mark chapters by long pauses instead, or add them yourself with “Mark chapter here”.'
+          : 'Listening to everything catches headings that come without a pause (slower: a few hours for a long book).');
+    $('noneThorough').hidden = book.source === 'failed' || book.mode === 'thorough';
+  }
+  if (!live) renderHeard();
   // Done: say plainly that the original file is untouched and how to get the chapter titles into a file.
   const done = !live && !unfinished && book.chapters.length > 0;
   $('saveBox').hidden = !done;
@@ -361,6 +384,29 @@ $('tPlay').onclick = () => { const el = $('audio'); if (el.paused) el.play().cat
 $('tSeek').oninput = () => { scrubbing = true; syncTransport(); };
 $('tSeek').onchange = async () => { await seekTo(+$('tSeek').value); scrubbing = false; syncTransport(); };
 $('audio').onplay = $('audio').onpause = syncTransport;
+
+// ---------- what it heard after each pause ----------
+function heardItem(h) {
+  const li = document.createElement('li');
+  li.innerHTML = '<button class="time"></button><span></span>';
+  li.children[0].textContent = fmtTime(h.start);
+  li.children[0].onclick = () => seekTo(h.start, true);
+  li.children[1].textContent = h.text;
+  return li;
+}
+function addHeard(h) {
+  $('heardBox').hidden = false;
+  $('heardList').appendChild(heardItem(h));
+  $('heardSum').textContent = `What it heard after each pause (${book.heard.length})`;
+}
+function renderHeard() {
+  const list = book.heard || [];
+  $('heardBox').hidden = !list.length;
+  $('heardSum').textContent = `What it heard after each pause (${list.length})`;
+  $('heardList').replaceChildren(...list.map(heardItem));
+}
+$('noneThorough').onclick = () => { $('mode').value = 'thorough'; $('relisten').click(); };
+$('nonePauses').onclick = () => { $('mode').value = 'pauses'; $('relisten').click(); };
 
 function currentIndex() {
   const t = getTime();

@@ -73,3 +73,19 @@ test('pauses measured from the audio end a title even when word times are contig
   // without audio pauses the title runs on into the next sentence (ten words max)
   assert.equal(findAnnouncements(w, { silences: [{ start: 2.2, end: 5.4 }] })[0].title, 'Chapter 2: A Stranger Door');
 });
+
+test('a number said on its own after a long pause is a chapter heading', () => {
+  // "...end of the last chapter. [2 s pause] Twelve. [0.8 s] The Long Road Home. [1 s] It was cold"
+  const w = words('end of the chapter. Twelve. The Long Road Home. It was cold', [3, 4, 8]);
+  w.forEach((x, i) => { if (i >= 4) { x.start += 1; x.end += 1; } });   // the pause before "Twelve." is 2 s
+  assert.deepEqual(findAnnouncements(w).map((a) => a.title), ['Chapter 12: The Long Road Home']);
+  // at the very start of a clip that begins right after a pause (Quick mode)
+  assert.equal(findAnnouncements(words('Twenty one. Fire and Ice. Snow fell', [1, 4]), { startsAfterPause: true })[0].title, 'Chapter 21: Fire and Ice');
+});
+
+test('ordinary numbers in the story are not headings', () => {
+  assert.deepEqual(findAnnouncements(words('One day she left. Two men followed her', [3])), []);       // no long pause
+  assert.deepEqual(findAnnouncements(words('He counted. Three. Four. Five.', [1])), []);                 // 1 s pause < 1.2 s
+  assert.deepEqual(findAnnouncements(words('One day she left', []), { startsAfterPause: true }), []);   // "One day…" is not alone
+  assert.deepEqual(findAnnouncements(words('I walked home', []), { startsAfterPause: true }), []);      // Roman "I" never bare
+});

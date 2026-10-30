@@ -40,7 +40,8 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
  * The title is the words that follow, up to a sentence end, a pause >= `titleGap`, or `maxTitleWords`.
  * Returns [{start, title}].
  */
-export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWords = 10, silences = [] } = {}) {
+export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWords = 10, silences = [],
+  bareNumbers = true, strongPause = 1.2, startsAfterPause = false } = {}) {
   const found = [];
   const n = words.length;
   // Whisper stamps a word after a pause right at the end of the word before it, so pauses are also read from the
@@ -53,8 +54,43 @@ export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWo
     return p;
   };
   let i = 0;
+  // Some books say just "Twelve." (no "Chapter") after a long pause. Only a number said on its own counts:
+  // a long pause before it, and a sentence end or pause right after it.
+  const bareNumberAt = (i) => {
+    if (!bareNumbers) return 0;
+    const w = norm(words[i].word);
+    if (!/^(\d+|[a-z]+(-[a-z]+)?)$/.test(w) || !NUM_RE.test(w) || /^[ivxlc]+$/.test(w)) return 0;
+    const before = i === 0 ? (startsAfterPause ? Infinity : 0) : pauseBefore(i);
+    if (before < strongPause) return 0;
+    let j = i + 1;
+    if (TENS.has(w) && j < n && ONES.has(norm(words[j].word)) && !/[.!?]$/.test(words[i].word.trimEnd())) j++;
+    const last = words[j - 1];
+    const alone = /[.!?:]$/.test(last.word.trimEnd()) || j >= n || pauseBefore(j) >= 0.6;
+    return alone ? j - i : 0;
+  };
   while (i < n) {
     const kw = norm(words[i].word);
+    const bare = !NUMBERED.has(kw) && !STANDALONE.has(kw) ? bareNumberAt(i) : 0;
+    if (bare) {
+      const num = words.slice(i, i + bare).map((w) => norm(w.word)).join(' ');
+      let j = i + bare;
+      const title = [];
+      while (j < n && title.length < maxTitleWords) {
+        const w = words[j];
+        if (title.length && pauseBefore(j) >= titleGap) break;
+        if (!title.length && pauseBefore(j) >= 3.0) break;
+        title.push(w.word.trim());
+        j++;
+        if (/[.!?]$/.test(w.word.trimEnd())) break;
+      }
+      const text = title.join(' ').replace(/^[\s.,:;!?\u2014-]+|[\s.,:;!?\u2014-]+$/g, '');
+      found.push({
+        start: Math.max(0, Math.round((words[i].start - 0.3) * 100) / 100),
+        title: text && title.length < maxTitleWords ? `Chapter ${fmtNum(num)}: ${text}` : `Chapter ${fmtNum(num)}`,
+      });
+      i = j;
+      continue;
+    }
     if (!NUMBERED.has(kw) && !STANDALONE.has(kw)) { i++; continue; }
     if (i > 0) {
       const prev = words[i - 1];

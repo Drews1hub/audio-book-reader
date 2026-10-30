@@ -60,6 +60,13 @@
 
     <section class="tile" id="player" hidden>
       <div class="row"><h2 id="title"></h2><button id="relisten" class="ghost">Listen again</button></div>
+      <div class="resume warn" id="noneBox" hidden>
+        <span id="noneText"></span>
+        <span class="row wrap">
+          <button id="noneThorough" class="primary">Listen to everything</button>
+          <button id="nonePauses">Mark long pauses instead</button>
+        </span>
+      </div>
       <div class="resume" id="saveBox" hidden>
         <span id="saveText"></span>
         <button id="saveNow" class="primary">Save audiobook with chapters</button>
@@ -81,6 +88,11 @@
       </div>
       <p class="muted small" id="source"></p>
       <ol id="chapters"></ol>
+      <details class="heard" id="heardBox" hidden>
+        <summary id="heardSum">What it heard after each pause</summary>
+        <p class="muted small">The first words after each long pause. Chapter announcements are found in these; click a time to listen.</p>
+        <ol id="heardList"></ol>
+      </details>
       <div class="row wrap export">
         <strong>Save</strong>
         <button id="exAudio" class="primary">Audio with chapters</button>
