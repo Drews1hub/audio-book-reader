@@ -62,7 +62,7 @@ const readAll = (dir) => new Promise((resolve) => {
 async function filesIn(entry) {
   if (entry.isFile) {
     const file = await new Promise((r) => entry.file(r, () => r(null)));
-    return file ? [{ file, path: entry.fullPath || entry.name }] : [];
+    return file ? [{ file, path: entry.fullPath || entry.name || file.name }] : [];
   }
   return (await Promise.all((await readAll(entry)).map(filesIn))).flat();
 }
