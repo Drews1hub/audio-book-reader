@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audiobook Reader</title>
+<style>
+  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --line:#e2e2e6; --accent:#4f46e5; --card:#f6f6f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141416; --fg:#ececf0; --muted:#9a9aa3; --line:#2c2c31; --accent:#8b83ff; --card:#1d1d21; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:.4rem 0 1rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  button, select, input[type=text] { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; }
+  button { cursor:pointer; } button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.link { border:0; background:none; color:var(--accent); padding:2px 6px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; min-width:0; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:22px; text-align:center; }
+  #drop.over { border-color:var(--accent); }
+  audio { width:100%; margin:8px 0; }
+  ul { list-style:none; padding:0; margin:0; }
+  li.chapter { display:flex; gap:8px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--line); }
+  li.chapter.current { background:color-mix(in srgb, var(--accent) 14%, transparent); border-radius:8px; }
+  li.chapter .time { font-variant-numeric:tabular-nums; color:var(--muted); width:5.5em; text-align:left; }
+  li.chapter input { width:100%; border-color:transparent; background:transparent; }
+  li.chapter input:focus { border-color:var(--line); background:var(--bg); }
+  progress { width:100%; }
+  .book { display:flex; align-items:center; gap:8px; padding:6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Audiobook Reader</h1>
+
+  <div class="card">
+    <div id="drop">
+      <p>Drop an audiobook here (mp3, m4a, m4b, wav, flac, ogg…)</p>
+      <input type="file" id="file" accept="audio/*,.m4b">
+      <p class="row" style="justify-content:center">
+        <label>Detection
+          <select id="mode">
+            <option value="auto">Smart (listen for “Chapter N”)</option>
+            <option value="silence">Fast (pauses only)</option>
+          </select></label>
+        <button class="primary" id="upload">Upload &amp; detect chapters</button>
+      </p>
+    </div>
+    <div id="status" class="muted"></div>
+    <progress id="bar" max="1" value="0" hidden></progress>
+  </div>
+
+  <div class="card" id="library"><strong>Library</strong><div id="books" class="muted">Nothing yet.</div></div>
+
+  <div class="card" id="player" hidden>
+    <div class="row"><strong id="title" class="grow"></strong>
+      <button class="link" id="reanalyze">Re-detect</button>
+      <button class="link" id="addMark">+ Mark here</button></div>
+    <audio id="audio" controls preload="metadata"></audio>
+    <div class="row">
+      <button id="prev">⏮ Prev</button><button id="next">Next ⏭</button>
+      <select id="speed"><option>0.8</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select>×
+      <span class="grow"></span>
+      <label class="muted">Export
+        <select id="export"><option value="">…</option><option value="audio">Audio with chapters</option>
+          <option value="ffmetadata">ffmetadata</option><option value="cue">CUE</option><option value="json">JSON</option></select></label>
+    </div>
+    <p class="muted" id="source"></p>
+    <ul id="chapters"></ul>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let book = null, saveTimer = null;
+const fmt = s => { s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? h+':'+String(m).padStart(2,'0') : m) + ':' + String(x).padStart(2,'0'); };
+const SOURCES = { embedded:'Chapters were already in the file.', speech:'Chapters found by listening to the narrator.',
+  silence:'Chapters guessed from long pauses — rename them as you go.' };
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function refreshLibrary() {
+  const list = await api('/api/books');
+  $('books').innerHTML = list.length ? '' : 'Nothing yet.';
+  for (const b of list) {
+    const row = document.createElement('div'); row.className = 'book';
+    row.innerHTML = `<span class="grow"></span><span class="muted"></span><button class="link">Open</button><button class="link">Delete</button>`;
+    row.children[0].textContent = b.title;
+    row.children[1].textContent = b.status === 'ready' ? `${b.chapter_count} ch · ${fmt(b.duration)}` : b.status;
+    row.children[2].onclick = () => openBook(b.id);
+    row.children[3].onclick = async () => { if (!confirm(`Delete “${b.title}”?`)) return;
+      await api('/api/books/'+b.id, {method:'DELETE'}); if (book?.id === b.id) { book = null; $('player').hidden = true; } refreshLibrary(); };
+    $('books').appendChild(row);
+  }
+}
+
+async function poll(id) {
+  $('bar').hidden = false;
+  for (;;) {
+    const b = await api('/api/books/'+id);
+    $('bar').value = b.progress; $('status').textContent = b.message;
+    if (b.status !== 'processing') { $('bar').hidden = true; break; }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  refreshLibrary(); openBook(id);
+}
+
+async function openBook(id) {
+  book = await api('/api/books/'+id);
+  if (book.status === 'processing') return poll(id);
+  if (book.status === 'error') { $('status').textContent = book.message; return; }
+  $('player').hidden = false; $('title').textContent = book.title;
+  $('source').textContent = SOURCES[book.source] || '';
+  const a = $('audio'); a.src = `/api/books/${id}/audio`;
+  const saved = +localStorage.getItem('pos:'+id) || 0;
+  a.addEventListener('loadedmetadata', () => { a.currentTime = saved; }, {once:true});
+  render();
+}
+
+function render() {
+  const ul = $('chapters'); ul.innerHTML = '';
+  book.chapters.forEach((c, i) => {
+    const li = document.createElement('li'); li.className = 'chapter'; li.id = 'ch'+i;
+    li.innerHTML = `<button class="link time"></button><input type="text"><button class="link" title="Remove">✕</button>`;
+    const [t, input, del] = li.children;
+    t.textContent = fmt(c.start); t.onclick = () => { $('audio').currentTime = c.start; $('audio').play(); };
+    input.value = c.title;
+    input.oninput = () => { c.title = input.value; queueSave(); };
+    del.onclick = () => { book.chapters.splice(i, 1); queueSave(); render(); };
+    ul.appendChild(li);
+  });
+  highlight();
+}
+
+function currentIndex() {
+  const t = $('audio').currentTime; let idx = -1;
+  book.chapters.forEach((c, i) => { if (c.start <= t + 0.25) idx = i; });
+  return idx;
+}
+function highlight() {
+  if (!book) return; const idx = currentIndex();
+  document.querySelectorAll('li.chapter').forEach((li, i) => li.classList.toggle('current', i === idx));
+}
+function queueSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => api(`/api/books/${book.id}/chapters`, {method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({chapters: book.chapters})}), 600);
+}
+
+$('audio').addEventListener('timeupdate', () => {
+  highlight(); if (book) localStorage.setItem('pos:'+book.id, $('audio').currentTime);
+});
+$('audio').addEventListener('ratechange', () => {});
+$('speed').onchange = e => { $('audio').playbackRate = +e.target.value; };
+$('prev').onclick = () => { const i = currentIndex(), a = $('audio');
+  a.currentTime = book.chapters[a.currentTime - book.chapters[i]?.start > 3 ? i : Math.max(0, i-1)]?.start ?? 0; };
+$('next').onclick = () => { const n = book.chapters[currentIndex()+1]; if (n) $('audio').currentTime = n.start; };
+$('addMark').onclick = () => {
+  book.chapters.push({start: +$('audio').currentTime.toFixed(2), title: 'New chapter'});
+  book.chapters.sort((a,b) => a.start - b.start); queueSave(); render(); };
+$('reanalyze').onclick = async () => { await api(`/api/books/${book.id}/reanalyze?mode=${$('mode').value}`, {method:'POST'}); poll(book.id); };
+$('export').onchange = e => { if (e.target.value) location.href = `/api/books/${book.id}/export?format=${e.target.value}`; e.target.value = ''; };
+
+function upload() {
+  const f = $('file').files[0]; if (!f) { $('status').textContent = 'Choose a file first.'; return; }
+  const fd = new FormData(); fd.append('file', f); fd.append('mode', $('mode').value);
+  const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/books');
+  $('bar').hidden = false; $('bar').value = 0;
+  xhr.upload.onprogress = e => { $('bar').value = e.loaded / e.total; $('status').textContent = `Uploading… ${Math.round(100*e.loaded/e.total)}%`; };
+  xhr.onload = () => { if (xhr.status === 200) { poll(JSON.parse(xhr.responseText).id); }
+    else { $('bar').hidden = true; $('status').textContent = JSON.parse(xhr.responseText).detail || 'Upload failed'; } };
+  xhr.onerror = () => { $('status').textContent = 'Upload failed'; };
+  xhr.send(fd);
+}
+$('upload').onclick = upload;
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); $('file').files = e.dataTransfer.files; };
+refreshLibrary();
+</script>
+</body>
+</html>
