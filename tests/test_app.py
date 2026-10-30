@@ -119,3 +119,8 @@ def test_api_flow(tone_book, tmp_path, monkeypatch):
 def test_standalone_heading_with_period_has_no_title():
     r = ch.find_announcements(_words("Epilogue. Years passed and the village forgot"))
     assert r[0]["title"] == "Epilogue"
+
+
+def test_roman_numerals_are_not_greedy():
+    assert ch.parse_announcement("Chapter civil war was long") is None
+    assert ch.parse_announcement("Chapter XII. Rain") == "Chapter XII: Rain"

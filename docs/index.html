@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audiobook Chapters</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta name="description" content="Upload an audiobook and it listens for “Chapter N”, then marks and names every chapter. Runs entirely in your browser; your audio never leaves your device.">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" aria-label="Audiobook Chapters home"><span class="brand-icon" aria-hidden="true">♪</span>Audiobook Chapters</a>
+      <span class="topbar-note"><span class="dot" aria-hidden="true"></span> Private by design</span>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <p class="eyebrow">LISTEN. MARK. NAME.</p>
+    <h1>It hears “Chapter 12”.<br><span>You get the chapters.</span></h1>
+    <p class="lede">Drop in an audiobook. It listens for each chapter announcement and writes the number and title for you.</p>
+    <ul class="benefits"><li>Runs on your device</li><li>No account needed</li><li>Free to use</li></ul>
+  </header>
+
+  <main>
+    <section class="tile" id="picker">
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" accept="audio/*,.m4b,.m4a,.mp3,.aac,.flac,.ogg,.opus,.wav" hidden>
+        <strong>Choose an audiobook</strong>
+        <span class="muted">or drop it here · MP3, M4B, M4A, FLAC, OGG, WAV</span>
+      </label>
+      <div class="control-row">
+        <label class="field">How to listen
+          <select id="mode">
+            <option value="thorough">Thorough: listen to everything (best, slowest)</option>
+            <option value="quick">Quick: listen after each pause</option>
+            <option value="pauses">Pauses only: no speech recognition</option>
+          </select>
+        </label>
+        <label class="field">Accuracy
+          <select id="model">
+            <option value="Xenova/whisper-tiny.en">Fast (tiny, 40 MB download)</option>
+            <option value="Xenova/whisper-base.en">Better (base, 75 MB download)</option>
+          </select>
+        </label>
+      </div>
+      <label class="check" id="gpuRow" hidden><input type="checkbox" id="gpu"> Try GPU acceleration (experimental, bigger download)</label>
+      <p class="muted small">English audiobooks. The speech model downloads once and is cached by your browser. Keep this tab open and in front while it listens.</p>
+    </section>
+
+    <section class="tile" id="progress" hidden>
+      <div class="row"><strong id="phase">Working…</strong><button id="stop" class="ghost">Stop</button></div>
+      <progress id="bar" max="1" value="0"></progress>
+      <p class="muted small" id="detail"></p>
+    </section>
+
+    <section class="tile" id="player" hidden>
+      <div class="row"><h2 id="title"></h2><button id="relisten" class="ghost">Listen again</button></div>
+      <audio id="audio" controls preload="metadata"></audio>
+      <div class="row wrap">
+        <button id="prev">⏮ Previous</button><button id="next">Next ⏭</button>
+        <button id="mark" class="ghost">＋ Mark chapter here</button>
+        <label class="field inline">Speed <select id="speed"><option>0.8</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label>
+      </div>
+      <p class="muted small" id="source"></p>
+      <ol id="chapters"></ol>
+      <div class="row wrap export">
+        <strong>Save</strong>
+        <button id="exAudio" class="primary">Audio with chapters</button>
+        <button id="exMeta">ffmetadata</button><button id="exCue">CUE</button><button id="exJson">JSON</button>
+      </div>
+      <p class="muted small" id="exNote">“Audio with chapters” keeps the same audio and writes the chapter titles into the file, so players show them as track titles. It builds the file in memory, so very large books (over ~1 GB) may fail; use the other formats then.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Your audio is never uploaded. The speech model (Whisper) and audio engine (ffmpeg) run in this page.
+    Chapters are remembered in your browser for each file. <a href="https://github.com/Drews1hub/audio-book-reader">Source</a></p>
+  </footer>
+</body>
+</html>

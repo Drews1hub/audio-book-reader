@@ -1,0 +1,2 @@
+onnxruntime-web (bundled inside vendor/transformers/transformers.min.js, plus vendor/transformers/ort-wasm-simd-threaded.jsep.*)
+https://github.com/microsoft/onnxruntime — MIT License, Copyright (c) Microsoft Corporation.

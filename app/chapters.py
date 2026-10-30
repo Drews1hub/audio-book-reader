@@ -61,7 +61,7 @@ _NUMBERED = {"chapter", "part", "book", "section", "appendix"}
 _STANDALONE = {"prologue", "epilogue", "introduction", "preface", "foreword", "afterword",
                "prelude", "interlude", "dedication", "acknowledgments", "acknowledgements"}
 _NUM = (r"(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[- ]"
-        r"(?:one|two|three|four|five|six|seven|eight|nine)|\d+|[ivxlc]+|zero|one|two|three|four|"
+        r"(?:one|two|three|four|five|six|seven|eight|nine)|\d+|(?=[ivxlc])(?:c|xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})|zero|one|two|three|four|"
         r"five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
         r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|"
         r"second|third|fourth|fifth")

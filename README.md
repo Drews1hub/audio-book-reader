@@ -1,9 +1,38 @@
 # Audiobook Chapter Reader
 
-Upload an audiobook; the server finds the chapters, names them, and gives you a
-player where you can jump between, rename, add and export chapters.
+Upload an audiobook and it listens for "Chapter 12 …", then marks and names every chapter, and gives you a
+player where you can jump between, rename, add and export chapters (including the audio file with the chapter
+titles written in).
 
-## Run
+There are two versions:
+
+- **Website (`docs/`)**: runs entirely in the browser, hosted free on GitHub Pages. No server; the audio never
+  leaves your device. See [Website](#website-github-pages).
+- **Server (`app/`)**: a Python/FastAPI server, faster on long books. See [Run](#run-server).
+
+## Website (GitHub Pages)
+
+Everything happens in the page: [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) decodes the book ten
+minutes at a time (the file is read in place, never copied into memory), and Whisper
+([transformers.js](https://github.com/huggingface/transformers.js) + ONNX Runtime WebAssembly) transcribes it.
+Libraries are vendored in `docs/vendor/`; only the speech model weights are fetched from Hugging Face on first use
+(40 MB tiny / 75 MB base) and then cached by the browser.
+
+Modes: **Thorough** transcribes the whole book; **Quick** transcribes ~15 s after each pause; **Pauses only**
+marks long pauses without speech recognition. Long silences are shortened before recognition (they break Whisper's
+word timing) and real pauses are measured from the audio itself, so titles stop where the narrator pauses.
+Chapters are saved in the browser per file (pick the same file again and they come back).
+
+Publish: repository **Settings → Pages → Build and deployment → Deploy from a branch**, pick the branch and the
+`/docs` folder. Try it locally with `cd docs && python3 -m http.server`.
+
+Speed: recognition runs on the CPU in one thread (GitHub Pages can't enable multi-threading), so Thorough mode on a
+long book takes a while; Quick mode is much faster. The GPU option (WebGPU) is experimental.
+Tests for the detection logic: `node --test tests/chapters.test.mjs`.
+
+Licenses: ffmpeg core is GPL-2.0-or-later, transformers.js Apache-2.0, ONNX Runtime MIT (see `docs/vendor/LICENSE-*`).
+
+## Run (server)
 
 ```bash
 sudo apt install ffmpeg          # or: brew install ffmpeg

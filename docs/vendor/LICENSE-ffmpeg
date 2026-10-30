@@ -1,0 +1,15 @@
+ffmpeg.wasm — https://github.com/ffmpegwasm/ffmpeg.wasm
+
+vendor/ffmpeg/        @ffmpeg/ffmpeg 0.12.15   MIT License, Copyright (c) 2019 Jerome Wu
+vendor/ffmpeg-core/   @ffmpeg/core 0.12.10     GPL-2.0-or-later
+
+@ffmpeg/core is FFmpeg (https://ffmpeg.org) compiled to WebAssembly together with
+libx264, libx265, libvpx, LAME, Opus, Vorbis, Theora, libwebp and other libraries.
+Because it includes GPL components (such as x264), the core is distributed under the
+GNU General Public License v2 or later. The complete corresponding source code and
+build scripts are available at:
+
+  https://github.com/ffmpegwasm/ffmpeg.wasm/tree/v0.12.10
+  https://ffmpeg.org/download.html
+
+The files in vendor/ffmpeg-core/ are the unmodified npm release of @ffmpeg/core 0.12.10.
