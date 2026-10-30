@@ -14,7 +14,12 @@ async function engine() {
   if (ff) return ff;
   loading ??= (async () => {
     const f = new FFmpeg();
-    await f.load({ coreURL: CORE + 'ffmpeg-core.js', wasmURL: CORE + 'ffmpeg-core.wasm' });
+    try {
+      await f.load({ coreURL: CORE + 'ffmpeg-core.js', wasmURL: CORE + 'ffmpeg-core.wasm' });
+    } catch (e) {
+      f.terminate();
+      throw new Error(`The audio engine could not download or start. Check your connection and reload the page. Details: ${e?.message || e}`);
+    }
     ff = f;
     return f;
   })();
@@ -29,24 +34,43 @@ export async function openAudio(file) {
   const ext = (/\.[a-z0-9]{1,5}$/i.exec(file.name) || ['.bin'])[0].toLowerCase();
   const safe = new File([file], 'book' + ext); // plain name; wraps the same bytes, no copy
   await f.createDir(dir);
-  await f.mount('WORKERFS', { files: [safe] }, dir);
+  if (!await f.mount('WORKERFS', { files: [safe] }, dir)) {
+    await f.deleteDir(dir);
+    throw new Error('The audio engine could not access this file. Try selecting it again from a local folder.');
+  }
   const input = `${dir}/${safe.name}`;
 
   return {
     ext,
     /** Length in seconds, read by ffmpeg (works for formats the browser's own player can't open). */
-    async duration() {
+    async duration(onFallback = () => {}) {
       let text = '';
       const onLog = ({ message }) => { text += message + '\n'; };
       f.on('log', onLog);
-      try { await f.exec(['-i', input]); } catch { /* no output file is expected to "fail" */ }
-      f.off('log', onLog);
-      const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
-      // Keep ffmpeg's own complaint so the page can say why a file couldn't be read.
-      this.lastError = text.split('\n').map((l) => l.trim())
-        .filter((l) => l && !/^(ffmpeg version|built with|configuration:|lib\w+ |Aborted|At least one output|Use -h)/.test(l))
-        .slice(-2).join(' · ');
-      return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+      try {
+        try { await f.exec(['-i', input]); } catch { /* probing has no output */ }
+        const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+        if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        // A readable stream can lack duration metadata. Decode to a null output to
+        // measure it, without retaining the decoded book in memory.
+        onFallback();
+        let seconds = 0;
+        const onProgress = ({ time }) => {
+          if (Number.isFinite(time) && time > 0) seconds = Math.max(seconds, time / 1e6);
+        };
+        f.on('progress', onProgress);
+        try {
+          const code = await f.exec(['-i', input, '-map', '0:a:0', '-vn', '-f', 'null', '-']);
+          if (code === 0 && seconds > 0) return seconds;
+        } catch (e) { text += `\n${e?.message || e}`; }
+        finally { f.off('progress', onProgress); }
+        return 0;
+      } finally {
+        f.off('log', onLog);
+        this.lastError = text.split('\n').map((l) => l.trim())
+          .filter((l) => l && !/^(ffmpeg version|built with|configuration:|lib\w+ |Aborted|At least one output|Use -h)/.test(l))
+          .slice(-4).join(' · ');
+      }
     },
     /** Chapters and tags already inside the file. */
     async probe() {
