@@ -1,8 +1,11 @@
 // Speech recognition in a worker (Whisper via transformers.js + ONNX Runtime WebAssembly). Audio never leaves the page;
-// only the model weights are downloaded (from Hugging Face, once; the browser caches them).
+// the model weights are fetched once from this site (and cached by the browser).
 import { pipeline, env } from '../vendor/transformers/transformers.min.js';
 
-env.allowLocalModels = false;
+// The speech models are hosted next to this page (docs/models/), so nothing is downloaded from Hugging Face:
+// some networks and browsers block it ("Forbidden access to file"). Hugging Face stays on as a fallback.
+env.allowLocalModels = true;
+env.localModelPath = new URL('../models/', import.meta.url).href;
 env.backends.onnx.wasm.wasmPaths = new URL('../vendor/transformers/', import.meta.url).href;
 env.backends.onnx.wasm.numThreads = 1; // multi-threading needs cross-origin isolation, which GitHub Pages can't send
 

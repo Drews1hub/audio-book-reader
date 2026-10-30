@@ -14,7 +14,8 @@ Upload an audiobook; it listens for spoken "Chapter N …" and marks/names the c
 pauses; resumable) → `docs/js/audio.js` (ffmpeg.wasm: length, embedded chapters, decode a slice to 16 kHz mono, write
 chapters into the file) and `docs/js/whisper-worker.js` (Whisper in a worker via transformers.js).
 `docs/js/chapters.js` is pure logic (finding "Chapter N" in words, silences, export formats) and is unit-tested.
-Libraries are vendored in `docs/vendor/` (no CDN); only the Whisper model weights come from Hugging Face.
+Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hosted in `docs/models/` (tiny.en + base.en,
+118 MB, unchanged copies of the Xenova ONNX repos). Hugging Face is only a fallback.
 
 ## Things learned the hard way (don't undo these)
 - Never rely on the browser's `<audio>` to open the file: Chrome can't play every format ffmpeg can read.
@@ -28,6 +29,10 @@ Libraries are vendored in `docs/vendor/` (no CDN); only the Whisper model weight
   `audio.js` treats the parts as one timeline, `app.js` plays them back to back (`timeline`, `seekTo`, `loadPart`),
   and the export joins them into one file with the chapters written in.
 - A web page can't change the user's original file; "Save" writes a new copy to Downloads. Say so in the UI.
+- **The owner's browser/network gets "Forbidden access to file: https://huggingface.co/…"** — HF is blocked for them, so
+  the model never loaded and the old silent fallback made it look like it "worked". That is why the models are now
+  hosted in `docs/models/`. Don't point the page back at Hugging Face only. (To test like the owner: make the browser
+  answer 403 to huggingface.co — see how it was done with `page.route` — and check the hosted files are used.)
 - Never fill the chapter list with pause guesses on its own: on the owner's real book it heard no headings and the
   silent fallback produced "Chapter 1, 2, …" in the wrong places. Now it says so (`noneBox`) and shows
   "What it heard after each pause" (`onHeard` in listen.js) so we can see what the narrator actually says.

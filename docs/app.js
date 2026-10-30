@@ -228,7 +228,10 @@ async function listenRun(mode, from, initial) {
     } catch (e) {
       whisper.stop(); whisper = null;
       // Say so plainly instead of quietly guessing from pauses.
-      book.note = `The speech model could not be loaded (${e.message}), so nothing was listened to. Check your connection and press “Listen again”.`;
+      const blocked = /forbidden|403|blocked/i.test(e.message);
+      book.note = blocked
+        ? `Your network or browser blocked the speech model (${e.message}), so nothing was listened to. Try another network, switch off a VPN, ad blocker or content filter for this site, then press “Listen again”.`
+        : `The speech model could not be loaded (${e.message}), so nothing was listened to. Check your connection and press “Listen again”.`;
       book.source = 'failed';
       book.chapters = [];
       book.scanned = book.duration;

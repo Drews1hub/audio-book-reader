@@ -15,8 +15,9 @@ There are two versions:
 Everything happens in the page: [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) decodes the book ten
 minutes at a time (the file is read in place, never copied into memory), and Whisper
 ([transformers.js](https://github.com/huggingface/transformers.js) + ONNX Runtime WebAssembly) transcribes it.
-Libraries are vendored in `docs/vendor/`; only the speech model weights are fetched from Hugging Face on first use
-(40 MB tiny / 75 MB base) and then cached by the browser.
+Libraries are vendored in `docs/vendor/` and the speech models are hosted in `docs/models/` (40 MB tiny / 75 MB base,
+downloaded from this site on first use and then cached by the browser), so nothing comes from Hugging Face, which
+some networks block.
 
 Modes: **Quick** (default) transcribes ~15 s after each pause, so a 10-hour book takes roughly 10–20 minutes;
 **Thorough** transcribes the whole book (about 2–3 hours for 10 hours of audio, measured at 3–4.5× real time on one
@@ -41,7 +42,8 @@ Recognition runs on the CPU in one thread (GitHub Pages can't enable multi-threa
 experimental and untested.
 Tests: `node --test tests/*.test.mjs`.
 
-Licenses: ffmpeg core is GPL-2.0-or-later, transformers.js Apache-2.0, ONNX Runtime MIT (see `docs/vendor/LICENSE-*`).
+Licenses: ffmpeg core is GPL-2.0-or-later, transformers.js Apache-2.0, ONNX Runtime MIT (see `docs/vendor/LICENSE-*`);
+Whisper models MIT (OpenAI) / Apache-2.0 (ONNX conversions), see `docs/models/LICENSE-whisper`.
 
 ## Run (server)
 

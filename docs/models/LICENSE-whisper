@@ -1,0 +1,5 @@
+Whisper speech-recognition models used by this page (docs/models/Xenova/whisper-tiny.en and whisper-base.en).
+
+Original model: OpenAI Whisper, https://github.com/openai/whisper, MIT License, Copyright (c) 2022 OpenAI.
+ONNX conversions (8-bit quantized): https://huggingface.co/Xenova/whisper-tiny.en and https://huggingface.co/Xenova/whisper-base.en,
+Apache License 2.0. Files are unchanged copies of those repositories.
