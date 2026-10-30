@@ -34,10 +34,39 @@ const drop = $('drop');
 drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
-drop.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); };
+drop.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('over'); handleDrop(e.dataTransfer); };
 // A file dropped anywhere else would make the browser leave the page and open it; load it here instead.
 addEventListener('dragover', (e) => e.preventDefault());
-addEventListener('drop', (e) => { e.preventDefault(); e.dataTransfer?.files[0] && load(e.dataTransfer.files[0]); });
+addEventListener('drop', (e) => { e.preventDefault(); handleDrop(e.dataTransfer); });
+
+// ---------- dropped folders ----------
+// A folder dragged onto a page arrives as an empty, extension-less "file", so look inside it instead.
+const AUDIO_EXT = /\.(mp3|m4b|m4a|mp4|aac|flac|ogg|oga|opus|wav|wma)$/i;
+const readAll = (dir) => new Promise((resolve) => {
+  const reader = dir.createReader(), all = [];
+  const next = () => reader.readEntries((es) => { if (!es.length) resolve(all); else { all.push(...es); next(); } }, () => resolve(all));
+  next();
+});
+async function filesIn(entry) {
+  if (entry.isFile) return [await new Promise((r) => entry.file(r, () => r(null)))].filter(Boolean);
+  return (await Promise.all((await readAll(entry)).map(filesIn))).flat();
+}
+async function handleDrop(dt) {
+  if (!dt) return;
+  // Entries must be taken before the first await; the browser clears the drop data afterwards.
+  const entries = [...(dt.items || [])].map((i) => (i.kind === 'file' && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null));
+  const plain = [...(dt.files || [])];
+  if (!entries.some((en) => en?.isDirectory)) { plain[0] && load(plain[0]); return; }
+  showProgress('Looking inside the folder…');
+  const audio = (await Promise.all(entries.filter(Boolean).map(filesIn))).flat()
+    .filter((f) => AUDIO_EXT.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const m4b = audio.filter((f) => /\.m4b$/i.test(f.name));
+  if (audio.length === 1) load(audio[0]);
+  else if (m4b.length === 1) load(m4b[0]);
+  else if (!audio.length) showError('No audio files in that folder.', 'Drop the audiobook file itself (for example an .m4b or .mp3).');
+  else showError(`That folder has ${audio.length} separate audio files.`,
+    `${audio.slice(0, 3).map((f) => f.name).join(', ')}${audio.length > 3 ? ', …' : ''}. This page opens one audiobook file at a time. Drop a single file (like one .m4b), or one part at a time.`);
+}
 
 function showProgress(phase, detail = '', value = null) {
   $('progress').hidden = false;
@@ -69,6 +98,10 @@ async function load(f) {
     if (ext === 'aax' || ext === 'aaxc') {
       return showError("Audible files can't be opened here.",
         `${about}. Audible .${ext} files are copy-protected, so only Audible's own apps can play them. Use an MP3, M4B, M4A, FLAC, OGG or WAV file.`);
+    }
+    if (f.size === 0) {
+      return showError('That file is empty (0 bytes).',
+        `${f.name}. If it is a folder, open it and drop the audio file inside. If it is stored in iCloud or another cloud folder, download it to this computer first.`);
     }
     const el = $('audio');
     objectUrl = URL.createObjectURL(new Blob([f], { type: mimeFor(f) }));
