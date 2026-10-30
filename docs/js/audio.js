@@ -42,6 +42,10 @@ export async function openAudio(file) {
       try { await f.exec(['-i', input]); } catch { /* no output file is expected to "fail" */ }
       f.off('log', onLog);
       const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+      // Keep ffmpeg's own complaint so the page can say why a file couldn't be read.
+      this.lastError = text.split('\n').map((l) => l.trim())
+        .filter((l) => l && !/^(ffmpeg version|built with|configuration:|lib\w+ |Aborted|At least one output|Use -h)/.test(l))
+        .slice(-2).join(' · ');
       return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
     },
     /** Chapters and tags already inside the file. */

@@ -64,6 +64,12 @@ async function load(f) {
   try {
     await release();
     file = f;
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    const about = `${f.name} · ${(f.size / 1e6).toFixed(0)} MB`;
+    if (ext === 'aax' || ext === 'aaxc') {
+      return showError("Audible files can't be opened here.",
+        `${about}. Audible .${ext} files are copy-protected, so only Audible's own apps can play them. Use an MP3, M4B, M4A, FLAC, OGG or WAV file.`);
+    }
     const el = $('audio');
     objectUrl = URL.createObjectURL(new Blob([f], { type: mimeFor(f) }));
     el.src = objectUrl;
@@ -78,7 +84,8 @@ async function load(f) {
       duration = await audioHandle.duration();
     }
     if (!duration) {
-      return showError("Couldn't read that file.", 'It may not be an audiobook, or it may be damaged. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.');
+      return showError("Couldn't read that file.",
+        `${about}${audioHandle?.lastError ? ` · ${audioHandle.lastError}` : ''}. It may not be an audio file, or it may be damaged. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.`);
     }
     const stem = f.name.replace(/\.[^.]+$/, '');
     const saved = store.get(storeKey(f));
