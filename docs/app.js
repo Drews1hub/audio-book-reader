@@ -27,6 +27,8 @@ const store = {
 };
 
 if ('gpu' in navigator) $('gpuRow').hidden = false;
+// When GitHub last published this page, so anyone looking at a screenshot can tell which version it is.
+$('ver').textContent = new Date(document.lastModified).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
 // ---------- file intake ----------
 $('file').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
