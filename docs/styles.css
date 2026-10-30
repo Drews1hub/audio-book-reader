@@ -72,6 +72,11 @@ li.ch.new { animation:flash 1.6s ease-out; }
 .export { border-top:1px solid var(--border); padding-top:16px; margin-top:18px; }
 footer { max-width:780px; margin:0 auto; padding:8px 20px 40px; text-align:center; font-size:13px; color:var(--muted); }
 footer a { color:var(--accent-link); }
+.details { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+.details .field input { min-height:44px; padding:0 12px; border-radius:12px; border:1px solid var(--border); background:var(--fill); }
+.details p { grid-column:1 / -1; margin:0; }
+.details.missing #bookAuthor { border-color:#ff9f0a; box-shadow:0 0 0 3px color-mix(in srgb, #ff9f0a 25%, transparent); }
+@media (max-width:600px) { .details { grid-template-columns:1fr; } }
 @media (max-width:480px) { .brand { font-size:17px; gap:8px; } .brand-icon { width:28px; height:28px; font-size:17px; } .topbar-note { font-size:12px; } }
 .resume { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; padding:14px 16px; border-radius:16px; background:var(--accent-soft); }
 .resume span { flex:1; min-width:200px; font-size:15px; }

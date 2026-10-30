@@ -141,3 +141,18 @@ test('the engine is restarted before ffmpeg.wasm wears out, and files stay reada
     assert.equal(Math.round((await audio.decode(1.2, 0.5))[100] * 32768), 700);   // still mounted after restarts
   } finally { await audio.close(); }
 });
+
+test('saving writes title and author, so players do not say "Unknown Artist / Unknown Album"', async () => {
+  const audio = await openAudio(tone('book.wav', 2, 900));
+  try {
+    const blob = await audio.embed(';FFMETADATA1\n', { title: 'Cloak of The Light', author: 'Chuck Black' });
+    const saved = await openAudio(new File([blob], 'saved.wav'));
+    try {
+      const { tags } = await saved.probe();
+      assert.equal(tags.title, 'Cloak of The Light');
+      assert.equal(tags.album, 'Cloak of The Light');
+      assert.equal(tags.artist, 'Chuck Black');
+      assert.equal(tags.genre, 'Audiobook');
+    } finally { await saved.close(); }
+  } finally { await audio.close(); }
+});

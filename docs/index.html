@@ -60,6 +60,11 @@
 
     <section class="tile" id="player" hidden>
       <div class="row"><h2 id="title"></h2><button id="relisten" class="ghost">Listen again</button></div>
+      <div class="details" id="detailsBox">
+        <label class="field">Title <input type="text" id="bookTitle" placeholder="Book title" autocomplete="off"></label>
+        <label class="field">Author <input type="text" id="bookAuthor" placeholder="Author's name" autocomplete="off"></label>
+        <p class="muted small" id="detailsHint">Saved into the audiobook file, so Apple Books and iTunes show them instead of “Unknown Artist” and “Unknown Album”.</p>
+      </div>
       <div class="resume warn" id="noneBox" hidden>
         <span id="noneText"></span>
         <span class="row wrap">

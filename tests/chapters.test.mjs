@@ -1,7 +1,7 @@
 // Run: node --test tests/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findAnnouncements, findSilences, squeezeSilences, unsqueeze, toFfmetadata, parseFfmetadata, fmtNum } from '../docs/js/chapters.js';
+import { bookTags, toCue, findAnnouncements, findSilences, squeezeSilences, unsqueeze, toFfmetadata, parseFfmetadata, fmtNum } from '../docs/js/chapters.js';
 
 function words(text, pauses = []) {
   const out = [];
@@ -88,4 +88,18 @@ test('ordinary numbers in the story are not headings', () => {
   assert.deepEqual(findAnnouncements(words('He counted. Three. Four. Five.', [1])), []);                 // 1 s pause < 1.2 s
   assert.deepEqual(findAnnouncements(words('One day she left', []), { startsAfterPause: true }), []);   // "One day…" is not alone
   assert.deepEqual(findAnnouncements(words('I walked home', []), { startsAfterPause: true }), []);      // Roman "I" never bare
+});
+
+test('title and author become the tags that stop "Unknown Artist / Unknown Album"', () => {
+  assert.deepEqual(bookTags({ title: 'Cloak of The Light', author: 'Chuck Black' }, '.m4b'), [
+    ['title', 'Cloak of The Light'], ['album', 'Cloak of The Light'],
+    ['artist', 'Chuck Black'], ['album_artist', 'Chuck Black'], ['genre', 'Audiobook'], ['media_type', '2']]);
+  assert.ok(!bookTags({ title: 'T', author: 'A' }, '.mp3').some(([k]) => k === 'media_type'), 'iTunes flag only for MP4 files');
+  assert.deepEqual(bookTags({ title: '', author: '  ' }, '.m4b').map(([k]) => k), ['media_type']);   // nothing typed: nothing overwritten
+  const back = parseFfmetadata(toFfmetadata([{ start: 0, title: 'One' }], 10, { title: 'My Book', author: 'A. Writer' }));
+  assert.equal(back.tags.title, 'My Book');
+  assert.equal(back.tags.artist, 'A. Writer');
+  assert.equal(back.tags.album, 'My Book');
+  assert.equal(parseFfmetadata(toFfmetadata([], 10, 'Plain title')).tags.title, 'Plain title');   // old call style still works
+  assert.match(toCue([{ start: 0, title: 'One' }], 'My Book', 'x.m4b', 'A. Writer'), /PERFORMER "A\. Writer"/);
 });

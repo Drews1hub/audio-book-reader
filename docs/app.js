@@ -174,7 +174,10 @@ async function load(src, name) {
       audioHandle = await openAudio(src);
     }
     const info = await audioHandle.probe();
-    if (info.tags.title && !multi) book.title = info.tags.title;
+    // Use what the file already says about itself (separate tracks: the album is the book, "Track 1" is not).
+    const named = multi ? info.tags.album : (info.tags.title || info.tags.album);
+    if (named) book.title = named;
+    book.author = info.tags.album_artist || info.tags.artist || '';
     if (info.chapters.length) {
       book.chapters = info.chapters;
       book.source = 'embedded';
@@ -297,16 +300,24 @@ async function release() {
 // ---------- player + chapter list ----------
 function persist() {
   if (book?.key) {
-    store.set(book.key, { title: book.title, chapters: book.chapters, source: book.source,
+    store.set(book.key, { title: book.title, author: book.author, chapters: book.chapters, source: book.source,
       scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, heard: book.heard, note: book.note,
       savedAt: Date.now() });
   }
 }
 function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 400); }
 
+// Title and author go into the saved file (and the CUE / ffmetadata files).
+$('bookTitle').oninput = (e) => { book.title = e.target.value; $('title').textContent = book.title; queueSave(); };
+$('bookAuthor').oninput = (e) => { book.author = e.target.value; $('detailsBox').classList.toggle('missing', !book.author.trim()); queueSave(); };
+const meta = () => ({ title: (book.title || '').trim(), author: (book.author || '').trim() });
+
 function showPlayer(live = false, flash = -1) {
   $('player').hidden = false;
   $('title').textContent = book.title;
+  $('bookTitle').value = book.title || '';
+  $('bookAuthor').value = book.author || '';
+  $('detailsBox').classList.toggle('missing', !book.author);
   const many = timeline.length > 1;
   $('audio').hidden = !playable || many;      // many files: our own bar, which spans the whole book
   $('tport').hidden = !playable || !many;
@@ -482,18 +493,22 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 const safeName = () => book.title.replace(/[\\/:*?"<>|]+/g, '_');
-$('exMeta').onclick = () => download(new Blob([toFfmetadata(book.chapters, book.duration, book.title)], { type: 'text/plain' }), `${safeName()}.ffmetadata.txt`);
-$('exCue').onclick = () => download(new Blob([toCue(book.chapters, book.title, Array.isArray(source) ? `${sourceName}.${audioHandle?.ext?.slice(1) || 'm4b'}` : source.name)], { type: 'text/plain' }), `${safeName()}.cue`);
+$('exMeta').onclick = () => download(new Blob([toFfmetadata(book.chapters, book.duration, meta())], { type: 'text/plain' }), `${safeName()}.ffmetadata.txt`);
+$('exCue').onclick = () => download(new Blob([toCue(book.chapters, book.title, Array.isArray(source) ? `${sourceName}.${audioHandle?.ext?.slice(1) || 'm4b'}` : source.name, book.author || '')], { type: 'text/plain' }), `${safeName()}.cue`);
 $('exJson').onclick = () => download(new Blob([JSON.stringify(book.chapters, null, 2)], { type: 'application/json' }), `${safeName()}.chapters.json`);
 $('saveNow').onclick = () => $('exAudio').click();
 $('exAudio').onclick = async () => {
   if (busy) return;
+  if (!(book.author || '').trim() && !confirm('No author entered, so Apple Books and iTunes will show “Unknown Artist”.\n\nSave anyway?')) {
+    $('bookAuthor').focus();
+    return;
+  }
   busy = true;
   const btn = $('exAudio'), label = btn.textContent, label2 = $('saveNow').textContent;
   btn.disabled = $('saveNow').disabled = true; btn.textContent = $('saveNow').textContent = 'Writing…';
   try {
     audioHandle ??= await openAudio(source);
-    const blob = await audioHandle.embed(toFfmetadata(book.chapters, book.duration, book.title));
+    const blob = await audioHandle.embed(toFfmetadata(book.chapters, book.duration, meta()), meta());
     book.savedAs = safeName() + audioHandle.ext;
     download(blob, book.savedAs);
     $('saveText').textContent = `Saved “${book.savedAs}” to your Downloads folder. Open that copy in Apple Books, VLC or another `

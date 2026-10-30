@@ -2,7 +2,7 @@
 // Files are mounted read-only (WORKERFS), so even a multi-gigabyte audiobook is never copied into memory.
 // A book can be one file or many (e.g. 117 numbered tracks): the parts are treated as one continuous timeline.
 import { FFmpeg } from '../vendor/ffmpeg/index.js';
-import { parseFfmetadata } from './chapters.js';
+import { bookTags, parseFfmetadata } from './chapters.js';
 
 const CORE = new URL('../vendor/ffmpeg-core/', import.meta.url).href;
 export const RATE = 16000;
@@ -150,15 +150,16 @@ export async function openAudio(source) {
      * Takes `onFallback` (called if the length has to be measured by decoding), or `{ onProgress, onFallback }`.
      */
     async duration(opts) { return measure(typeof opts === 'function' ? { onFallback: opts } : opts); },
-    /** Chapters and tags already inside the file (single files only; separate tracks carry none). */
+    /** Tags already inside the file, and its chapters (single files only; separate tracks carry none). */
     async probe() {
-      if (multi) return { tags: {}, chapters: [] };
       const f = await nextEngine();
       try {
         await f.exec(['-i', parts[0].input, '-f', 'ffmetadata', '/probe.txt']);
         const text = await f.readFile('/probe.txt', 'utf8');
         await f.deleteFile('/probe.txt');
-        return parseFfmetadata(text);
+        const info = parseFfmetadata(text);
+        // Separate tracks carry no chapters of their own, but the first one's tags (artist, album) are worth reading.
+        return multi ? { ...info, chapters: [] } : info;
       } catch { return { tags: {}, chapters: [] }; }
     },
     /** Float32Array of [start, start+length) at 16 kHz mono; empty past the end. */
@@ -181,15 +182,18 @@ export async function openAudio(source) {
      * The audio with the chapter list written in, without re-encoding. Many files are joined into one.
      * Needs the whole output in memory.
      */
-    async embed(ffmetadata) {
+    async embed(ffmetadata, meta = {}) {
       const f = await nextEngine();
       await f.writeFile('/chapters.ffmeta', ffmetadata);
       const out = '/export' + ext;
+      // Chapters come from the ffmetadata file; title/author are set with -metadata. Not `-map_metadata 1`, which
+      // would replace every tag the file already has (artist, album, …) with the few in that list.
+      const tags = bookTags(meta, ext).flatMap(([k, v]) => ['-metadata', `${k}=${v}`]);
       const args = multi
         ? ['-f', 'concat', '-safe', '0', '-i', '/list.txt', '-i', '/chapters.ffmeta', '-map', '0:a',
-          '-map_metadata', '1', '-map_chapters', '1', '-c', 'copy', out]
-        : ['-i', parts[0].input, '-i', '/chapters.ffmeta', '-map', '0', '-map_metadata', '1',
-          '-map_chapters', '1', '-c', 'copy', out];
+          '-map_chapters', '1', ...tags, '-c', 'copy', out]
+        : ['-i', parts[0].input, '-i', '/chapters.ffmeta', '-map', '0',
+          '-map_chapters', '1', ...tags, '-c', 'copy', out];
       if (multi) await f.writeFile('/list.txt', parts.map((p) => `file '${p.input}'`).join('\n') + '\n');
       const code = await f.exec(args);
       if (multi) await f.deleteFile('/list.txt').catch(() => {});

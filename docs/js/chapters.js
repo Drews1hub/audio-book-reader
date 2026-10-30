@@ -192,10 +192,27 @@ export function unsqueeze(t, pieces) {
 
 const esc = (s) => s.replace(/([=;#\\\n])/g, '\\$1');
 
-export function toFfmetadata(chapters, duration, title = '') {
+/**
+ * The tags that make a book show up properly in Apple Books / iTunes instead of "Unknown Artist / Unknown Album".
+ * `meta` is { title, author }; empty fields are left out, so tags already in a file are kept rather than blanked.
+ * `ext` (".m4b") adds the "this is an audiobook" flag for MP4-family files.
+ */
+export function bookTags(meta = {}, ext = '') {
+  const title = (meta.title || '').trim(), author = (meta.author || '').trim();
+  const tags = [];
+  if (title) tags.push(['title', title], ['album', title]);
+  if (author) tags.push(['artist', author], ['album_artist', author]);
+  if (title || author) tags.push(['genre', 'Audiobook']);
+  if (/^\.(m4b|m4a|mp4)$/i.test(ext)) tags.push(['media_type', '2']);   // iTunes "stik": 2 = Audiobook
+  return tags;
+}
+
+/** `meta` is { title, author } (a plain string is taken as the title). */
+export function toFfmetadata(chapters, duration, meta = {}) {
   chapters = chapters.filter((c) => c.start < duration); // a chapter must start inside the audio
+  if (typeof meta === 'string') meta = { title: meta };
   const lines = [';FFMETADATA1'];
-  if (title) lines.push(`title=${esc(title)}`);
+  for (const [k, v] of bookTags(meta).filter(([k]) => k !== 'genre' || meta.author || meta.title)) lines.push(`${k}=${esc(v)}`);
   chapters.forEach((c, i) => {
     const end = i + 1 < chapters.length ? chapters[i + 1].start : duration;
     lines.push('[CHAPTER]', 'TIMEBASE=1/1000', `START=${Math.floor(c.start * 1000)}`,
@@ -231,8 +248,10 @@ export function parseFfmetadata(text) {
   };
 }
 
-export function toCue(chapters, title, filename) {
-  const lines = [`TITLE "${title}"`, `FILE "${filename}" WAVE`];
+export function toCue(chapters, title, filename, author = '') {
+  const lines = [`TITLE "${title}"`];
+  if (author) lines.push(`PERFORMER "${author.replace(/"/g, "'")}"`);
+  lines.push(`FILE "${filename}" WAVE`);
   chapters.forEach((c, i) => {
     const m = Math.floor(c.start / 60), s = Math.floor(c.start % 60), fr = Math.floor((c.start % 1) * 75);
     const p = (x) => String(x).padStart(2, '0');
