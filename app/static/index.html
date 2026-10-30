@@ -44,7 +44,7 @@
       <p class="row" style="justify-content:center">
         <label>Detection
           <select id="mode">
-            <option value="auto">Smart (listen for “Chapter N”)</option>
+            <option value="auto">Smart (listen to the whole book for “Chapter N”)</option>
             <option value="silence">Fast (pauses only)</option>
           </select></label>
         <button class="primary" id="upload">Upload &amp; detect chapters</button>
@@ -79,7 +79,7 @@ const $ = id => document.getElementById(id);
 let book = null, saveTimer = null;
 const fmt = s => { s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
   return (h ? h+':'+String(m).padStart(2,'0') : m) + ':' + String(x).padStart(2,'0'); };
-const SOURCES = { embedded:'Chapters were already in the file.', speech:'Chapters found by listening to the narrator.',
+const SOURCES = { embedded:'Chapters were already in the file.', speech:'Chapters found by listening to the whole book and catching “Chapter N” as the narrator says it.',
   silence:'Chapters guessed from long pauses — rename them as you go.' };
 
 async function api(url, opts) {
@@ -108,22 +108,34 @@ async function poll(id) {
   for (;;) {
     const b = await api('/api/books/'+id);
     $('bar').value = b.progress; $('status').textContent = b.message;
+    if (b.chapters.length && b.chapters.length !== book?.chapters.length) showBook(b, true);  // live
     if (b.status !== 'processing') { $('bar').hidden = true; break; }
     await new Promise(r => setTimeout(r, 1000));
   }
   refreshLibrary(); openBook(id);
 }
 
-async function openBook(id) {
-  book = await api('/api/books/'+id);
-  if (book.status === 'processing') return poll(id);
-  if (book.status === 'error') { $('status').textContent = book.message; return; }
+function showBook(b, live) {
+  const first = !book || book.id !== b.id;
+  book = b;
   $('player').hidden = false; $('title').textContent = book.title;
-  $('source').textContent = SOURCES[book.source] || '';
-  const a = $('audio'); a.src = `/api/books/${id}/audio`;
-  const saved = +localStorage.getItem('pos:'+id) || 0;
-  a.addEventListener('loadedmetadata', () => { a.currentTime = saved; }, {once:true});
+  $('source').textContent = live ? 'Listening to the book — chapters appear as they are heard…' : (SOURCES[book.source] || '');
+  const a = $('audio');
+  if (first) {
+    a.src = `/api/books/${b.id}/audio`;
+    const saved = live ? 0 : +localStorage.getItem('pos:'+b.id) || 0;
+    a.addEventListener('loadedmetadata', () => { a.currentTime = saved; }, {once:true});
+  }
   render();
+}
+
+async function openBook(id) {
+  const b = await api('/api/books/'+id);
+  if (b.status === 'processing') return poll(id);
+  if (b.status === 'error') { $('status').textContent = b.message; return; }
+  const same = book && book.id === id;
+  showBook(b, false);
+  if (same) $('source').textContent = SOURCES[b.source] || '';
 }
 
 function render() {

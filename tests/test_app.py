@@ -32,6 +32,26 @@ def test_parse_announcement():
     assert ch.parse_announcement("Part of the problem was money.") is None
 
 
+def _words(text, pauses=()):
+    """Fake timestamped words; `pauses` = indexes of words followed by a 1s pause."""
+    out, t = [], 0.0
+    for i, w in enumerate(text.split()):
+        out.append({"word": w, "start": t, "end": t + 0.3})
+        t += 0.3 + (1.0 if i in pauses else 0.0)
+    return out
+
+
+def test_find_announcements_mid_stream():
+    # heading in the middle of continuous narration, title ends at a pause
+    w = _words("and then she left the house for good. Chapter seven The Long Road Home It was cold",
+               pauses={13})
+    r = ch.find_announcements(w)
+    assert r == [{"start": round(w[8]["start"] - 0.3, 2), "title": "Chapter 7: The Long Road Home"}]
+    # mid-sentence mention is not a heading
+    assert ch.find_announcements(_words("she read the next chapter seven times")) == []
+    assert ch.find_announcements(_words("He said chapter two was boring")) == []
+
+
 def test_silence_detection(tone_book):
     sil = ch.detect_silences(str(tone_book), min_silence=1.0)
     assert len(sil) == 2
@@ -64,7 +84,7 @@ def test_api_flow(tone_book, tmp_path, monkeypatch):
     importlib.reload(main)
     fake = {"duration": 20.0, "title": None, "author": None, "source": "silence",
             "chapters": [{"start": 0.0, "title": "Chapter 1"}, {"start": 6.0, "title": "Chapter 2"}]}
-    monkeypatch.setattr(main.ch, "detect_chapters", lambda path, mode, progress: fake)
+    monkeypatch.setattr(main.ch, "detect_chapters", lambda path, mode, progress, on_chapter: fake)
     c = TestClient(main.app)
     with open(tone_book, "rb") as f:
         r = c.post("/api/books", files={"file": ("My Book.mp3", f, "audio/mpeg")}, data={"mode": "auto"})
@@ -94,3 +114,8 @@ def test_api_flow(tone_book, tmp_path, monkeypatch):
     assert c.get("/api/books/../etc").status_code in (404, 422)
     assert c.delete(f"/api/books/{bid}").status_code == 200
     assert c.get(f"/api/books/{bid}").status_code == 404
+
+
+def test_standalone_heading_with_period_has_no_title():
+    r = ch.find_announcements(_words("Epilogue. Years passed and the village forgot"))
+    assert r[0]["title"] == "Epilogue"

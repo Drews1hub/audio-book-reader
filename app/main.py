@@ -54,8 +54,12 @@ def _analyze(book_id: str, mode: str):
         book.update(progress=round(p, 3), message=msg)
         _save(book_id, book)
 
+    def on_chapter(found):  # show chapters in the UI the moment they're heard
+        book["chapters"] = found
+        _save(book_id, book)
+
     try:
-        result = ch.detect_chapters(_audio_path(book, book_id), mode, progress)
+        result = ch.detect_chapters(_audio_path(book, book_id), mode, progress, on_chapter)
         book.update(result, status="ready", progress=1.0, message="Done")
         book["title"] = book.get("title") or Path(book["filename"]).stem
     except Exception as exc:
@@ -133,7 +137,7 @@ def edit_chapters(book_id: str, edit: BookEdit):
 @app.post("/api/books/{book_id}/reanalyze")
 def reanalyze(book_id: str, background: BackgroundTasks, mode: str = "auto"):
     book = _load(book_id)
-    book.update(status="processing", progress=0.0, message="Queued")
+    book.update(status="processing", progress=0.0, message="Queued", chapters=[])
     _save(book_id, book)
     background.add_task(_analyze, book_id, mode)
     return {"id": book_id}

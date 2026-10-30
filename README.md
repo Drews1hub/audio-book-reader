@@ -16,15 +16,17 @@ Open http://localhost:8000. Files and chapters are stored in `./data` (override 
 ## How chapters are found
 
 1. **Embedded chapters** (m4b/mp3 with chapter tags) are used as-is.
-2. **Smart mode** (default): ffmpeg finds long pauses, then
-   [faster-whisper](https://github.com/SYSTRAN/faster-whisper) transcribes ~20 s after each pause and at the
-   start. Where the narrator says "Chapter twelve. The Long Road Home" (or Prologue, Epilogue, Part N, …) a
-   chapter is created and named `Chapter 12: The Long Road Home`. The model (`base.en` by default,
-   set `WHISPER_MODEL` to change) downloads on first use and runs on CPU.
-3. **Fast mode**, or when nothing is announced: long pauses become `Chapter N` markers to rename by hand.
+2. **Smart mode** (default): the server listens to the *entire* book with
+   [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (word-level timestamps, 10-minute windows).
+   Whenever the narrator starts a sentence with "Chapter twelve" (or Prologue, Epilogue, Part N, …) a chapter
+   is created at that moment and titled from the words that follow, e.g. `Chapter 12: The Long Road Home`.
+   No pauses are needed, and chapters show up in the UI live while it listens. The model (`base.en` by
+   default, set `WHISPER_MODEL` to change) downloads on first use and runs on CPU, so expect a book to take
+   a fraction of its length to process (a faster model like `tiny.en` trades accuracy for speed).
+3. **Fast mode**, or when nothing is heard: long pauses become `Chapter N` markers to rename by hand.
 
-Limitations: English only; a chapter must be preceded by a pause of ~2 s+; titles come straight from
-speech recognition, so check them. Everything is editable in the UI (autosaves).
+Limitations: English only; the heading must start a sentence (so "she read chapter seven twice" is ignored);
+titles come straight from speech recognition, so check them. Everything is editable in the UI (autosaves).
 
 ## Export
 
