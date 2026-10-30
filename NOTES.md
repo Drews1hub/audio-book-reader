@@ -22,6 +22,12 @@ Libraries are vendored in `docs/vendor/` (no CDN); only the Whisper model weight
   silences are shortened before recognition and pauses are measured from the audio (`squeezeSilences`, `silences`).
 - A dropped *folder* arrives as an empty extension-less "file"; `handleDrop` looks inside it.
 - Real test books are ~10 hours: keep Quick mode the default; keep progress saved so it can resume.
+- ffmpeg.wasm crashes the whole tab after ~100–150 `exec` runs (measured, any file). `audio.js` restarts the engine
+  every 50 runs (`MAX_JOBS`) and re-mounts the files. Don't remove this: a 117-track book needs hundreds of runs.
+- The owner's books come as a **folder of many tracks** (e.g. 117 × `001 - 001 - Track 1.m4b`). These are one book:
+  `audio.js` treats the parts as one timeline, `app.js` plays them back to back (`timeline`, `seekTo`, `loadPart`),
+  and the export joins them into one file with the chapters written in.
+- A web page can't change the user's original file; "Save" writes a new copy to Downloads. Say so in the UI.
 
 ## Test
 ```bash
@@ -37,7 +43,6 @@ cd docs && python3 -m http.server # then open http://localhost:8000 (Chrome)
 
 ## Open items
 - Real narrator audiobooks haven't been tested yet (all tests used a computer voice).
-- Books made of many separate audio files (one per chapter) aren't supported yet.
 - WebGPU option is untested.
 
 ## Intake improvements (Codex)

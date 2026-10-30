@@ -46,6 +46,10 @@ class CoreWorker {
           }));
           this.core.FS.mount(this.core.FS.filesystems.WORKERFS, { files }, data.mountPoint);
         } else if (type === 'UNMOUNT') this.core.FS.unmount(data.mountPoint);
+        // File calls, as in docs/vendor/ffmpeg/worker.js (decode() reads its output back).
+        else if (type === 'READ_FILE') result = this.core.FS.readFile(data.path, { encoding: data.encoding });
+        else if (type === 'WRITE_FILE') this.core.FS.writeFile(data.path, data.data);
+        else if (type === 'DELETE_FILE') this.core.FS.unlink(data.path);
         else if (type === 'EXEC') {
           commands.push(data.args);
           this.core.exec(...data.args); result = this.core.ret; this.core.reset();
@@ -100,4 +104,40 @@ test('small nonempty files never round down to zero MB', () => {
   assert.equal(formatFileSize(25000), '25.0 KB');
   assert.equal(formatFileSize(1500000), '1.5 MB');
   assert.equal(formatFileSize(1500000000), '1.50 GB');
+});
+
+// Added by Claude: books made of many files, and the engine restart that keeps long runs from crashing the tab.
+function tone(name, seconds, value) {
+  const n = 16000 * seconds, b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF'); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28);
+  b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(value, 44 + i * 2);
+  return new File([b], name);
+}
+
+test('several files play as one timeline', async () => {
+  const audio = await openAudio([tone('01.wav', 1, 1000), tone('02.wav', 2, 2000), tone('03.wav', 1, 3000)]);
+  try {
+    assert.equal(await audio.duration(), 4);
+    assert.deepEqual(audio.parts.map((p) => [p.start, p.duration]), [[0, 1], [1, 2], [3, 1]]);
+    const s = await audio.decode(0.5, 3);           // 0.5 s of part 1, all of part 2, 0.5 s of part 3
+    assert.equal(s.length, 3 * 16000);
+    const at = (sec) => Math.round(s[Math.round(sec * 16000)] * 32768);
+    assert.equal(at(0.2), 1000);
+    assert.equal(at(1.5), 2000);
+    assert.equal(at(2.8), 3000);
+  } finally { await audio.close(); }
+});
+
+test('the engine is restarted before ffmpeg.wasm wears out, and files stay readable', async () => {
+  const audio = await openAudio([tone('a.wav', 1, 500), tone('b.wav', 1, 700)]);
+  try {
+    await audio.duration();
+    const before = failedWorkers;
+    for (let i = 0; i < 120; i++) assert.equal((await audio.decode(0.5, 1)).length, 16000);
+    assert.ok(failedWorkers - before >= 2, 'restarted at least twice in 120+ runs');
+    assert.equal(Math.round((await audio.decode(1.2, 0.5))[100] * 32768), 700);   // still mounted after restarts
+  } finally { await audio.close(); }
 });

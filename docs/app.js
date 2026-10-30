@@ -11,8 +11,10 @@ const SOURCES = {
   manual: 'Edited by you.',
 };
 
-let file = null, objectUrl = null, audioHandle = null, whisper = null;
-let book = null;            // { title, duration, chapters, source }
+let source = null, sourceName = '';   // a File, or an array of Files for a book made of many tracks
+let objectUrl = null, audioHandle = null, whisper = null;
+let timeline = [], curPart = 0;       // the files in order: [{ file, start, duration }]; curPart is the one in the player
+let book = null;            // { title, duration, chapters, source, key }
 let stopRequested = false, busy = false, saveTimer = null;
 let playable = true;        // false when this browser's own player can't open the format (chapters still work)
 
@@ -21,7 +23,10 @@ const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', m4b: 'audio/mp4', mp4: 'audi
   flac: 'audio/flac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav' };
 const mimeFor = (f) => f.type || MIME[(f.name.split('.').pop() || '').toLowerCase()] || '';
 
-const storeKey = (f) => `abr:v1:${f.name}:${f.size}:${f.lastModified}`;
+const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+const storeKey = (src, name) => (Array.isArray(src)
+  ? `abr:v1:folder:${name}:${src.length}:${src.reduce((n, f) => n + f.size, 0)}:${src[0].lastModified}`
+  : `abr:v1:${src.name}:${src.size}:${src.lastModified}`);
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode / full */ } },
@@ -32,7 +37,11 @@ if ('gpu' in navigator) $('gpuRow').hidden = false;
 $('ver').textContent = new Date(document.lastModified).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
 // ---------- file intake ----------
-$('file').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
+$('file').onchange = (e) => {
+  const files = [...e.target.files].filter((f) => f.size > 0);
+  if (files.length > 1) load(files.sort((a, b) => natural(a.name, b.name)), `Audiobook (${files.length} files)`);
+  else if (files[0] || e.target.files[0]) load(files[0] || e.target.files[0]);
+};
 const drop = $('drop');
 drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
@@ -51,7 +60,10 @@ const readAll = (dir) => new Promise((resolve) => {
   next();
 });
 async function filesIn(entry) {
-  if (entry.isFile) return [await new Promise((r) => entry.file(r, () => r(null)))].filter(Boolean);
+  if (entry.isFile) {
+    const file = await new Promise((r) => entry.file(r, () => r(null)));
+    return file ? [{ file, path: entry.fullPath || entry.name }] : [];
+  }
   return (await Promise.all((await readAll(entry)).map(filesIn))).flat();
 }
 async function handleDrop(dt) {
@@ -59,16 +71,22 @@ async function handleDrop(dt) {
   // Entries must be taken before the first await; the browser clears the drop data afterwards.
   const entries = [...(dt.items || [])].map((i) => (i.kind === 'file' && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null));
   const plain = [...(dt.files || [])];
-  if (!entries.some((en) => en?.isDirectory)) { plain[0] && load(plain[0]); return; }
+  const dirs = entries.filter((en) => en?.isDirectory);
+  if (!dirs.length) {
+    const tracks = plain.filter((f) => f.size > 0 && AUDIO_EXT.test(f.name));
+    if (tracks.length > 1) load(tracks.sort((a, b) => natural(a.name, b.name)), `Audiobook (${tracks.length} files)`);
+    else plain[0] && load(plain[0]);
+    return;
+  }
   showProgress('Looking inside the folder…');
   const audio = (await Promise.all(entries.filter(Boolean).map(filesIn))).flat()
-    .filter((f) => AUDIO_EXT.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const m4b = audio.filter((f) => /\.m4b$/i.test(f.name));
-  if (audio.length === 1) load(audio[0]);
-  else if (m4b.length === 1) load(m4b[0]);
+    .filter(({ file }) => file.size > 0 && AUDIO_EXT.test(file.name))
+    .sort((a, b) => natural(a.path, b.path));
+  const m4b = audio.filter(({ file }) => /\.m4b$/i.test(file.name));
+  if (audio.length === 1) load(audio[0].file);
+  else if (m4b.length === 1) load(m4b[0].file);
   else if (!audio.length) showError('No audio files in that folder.', 'Drop the audiobook file itself (for example an .m4b or .mp3).');
-  else showError(`That folder has ${audio.length} separate audio files.`,
-    `${audio.slice(0, 3).map((f) => f.name).join(', ')}${audio.length > 3 ? ', …' : ''}. This page opens one audiobook file at a time. Drop a single file (like one .m4b), or one part at a time.`);
+  else load(audio.map((a) => a.file), dirs[0].name);   // many tracks: one book, in file-name order
 }
 
 function showProgress(phase, detail = '', value = null) {
@@ -90,55 +108,68 @@ function playerDuration(el) {
   });
 }
 
-async function load(f) {
+async function load(src, name) {
   if (busy) return;
   busy = true;
   try {
     await release();
-    file = f;
-    const ext = (f.name.split('.').pop() || '').toLowerCase();
-    const about = `${f.name} · ${formatFileSize(f.size)}`;
-    if (ext === 'aax' || ext === 'aaxc') {
+    const multi = Array.isArray(src);
+    const first = multi ? src[0] : src;
+    source = src;
+    sourceName = name || first.name;
+    const size = formatFileSize(multi ? src.reduce((n, f) => n + f.size, 0) : src.size);
+    const about = `${sourceName}${multi ? ` · ${src.length} files` : ''} · ${size}`;
+    const locked = (multi ? src : [src]).find((f) => /\.aaxc?$/i.test(f.name));
+    if (locked) {
       return showError("Audible files can't be opened here.",
-        `${about}. Audible .${ext} files are copy-protected, so only Audible's own apps can play them. Use an MP3, M4B, M4A, FLAC, OGG or WAV file.`);
+        `${locked.name}. Audible .aax/.aaxc files are copy-protected, so only Audible's own apps can play them. Use an MP3, M4B, M4A, FLAC, OGG or WAV file.`);
     }
-    if (f.size === 0) {
+    if (first.size === 0) {
       return showError('That file is empty (0 bytes).',
-        `${f.name}. If it is a folder, open it and drop the audio file inside. If it is stored in iCloud or another cloud folder, download it to this computer first.`);
+        `${first.name}. If it is a folder, open it and drop the audio file inside. If it is stored in iCloud or another cloud folder, download it to this computer first.`);
     }
+    // Try the first file in the browser's own player; a book of many files plays one file at a time.
+    timeline = [{ file: first, start: 0, duration: 0 }];
+    curPart = 0;
     const el = $('audio');
-    objectUrl = URL.createObjectURL(new Blob([f], { type: mimeFor(f) }));
+    objectUrl = URL.createObjectURL(new Blob([first], { type: mimeFor(first) }));
     const metadata = playerDuration(el);
     el.src = objectUrl;
     $('stop').hidden = true;
     showProgress('Opening your audiobook…');
     let duration = await metadata;
     playable = isFinite(duration) && duration > 0;
-    if (!playable) {
-      // The browser can't play this format, but the audio engine usually can still read it.
+    if (!playable || multi) {
+      // The audio engine reads the length (the browser can't play every format; many files need adding up).
       showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
-      audioHandle = await openAudio(f);
-      duration = await audioHandle.duration(() => showProgress('Checking the audio itself…',
-        'The file has no readable duration. Measuring it may take a while for a long book.'));
+      audioHandle = await openAudio(src);
+      duration = await audioHandle.duration({
+        onProgress: (i, n) => n > 1 && showProgress('Reading your files…', `${i} of ${n}`, i / n),
+        onFallback: () => showProgress('Checking the audio itself…',
+          'The file has no readable duration. Measuring it may take a while for a long book.'),
+      });
     }
     if (!Number.isFinite(duration) || duration <= 0) {
       return showError("Couldn't read that file.",
         `${about}${audioHandle?.lastError ? ` · ${audioHandle.lastError}` : ''}. The audio engine loaded, but could not read this file. Make sure it is the audio file itself and is fully downloaded to your computer. Try an MP3, M4A/M4B, FLAC, OGG or WAV file.`);
     }
-    const stem = f.name.replace(/\.[^.]+$/, '');
-    const saved = store.get(storeKey(f));
+    timeline = audioHandle ? audioHandle.parts.map((p) => ({ file: p.file, start: p.start, duration: p.duration }))
+      : [{ file: first, start: 0, duration }];
+    const key = storeKey(src, sourceName);
+    const stem = multi ? sourceName : first.name.replace(/\.[^.]+$/, '');
+    const saved = store.get(key);
     if (saved && (saved.chapters?.length || saved.scanned > 0)) {
-      book = { ...saved, duration };
+      book = { ...saved, duration, key };
       $('progress').hidden = true;
       return showPlayer();
     }
-    book = { title: stem, duration, chapters: [], source: null };
+    book = { title: stem, duration, chapters: [], source: null, key };
     if (!audioHandle) {
       showProgress('Starting the audio engine…', 'One-time 32 MB download, then it is cached.');
-      audioHandle = await openAudio(f);
+      audioHandle = await openAudio(src);
     }
     const info = await audioHandle.probe();
-    if (info.tags.title) book.title = info.tags.title;
+    if (info.tags.title && !multi) book.title = info.tags.title;
     if (info.chapters.length) {
       book.chapters = info.chapters;
       book.source = 'embedded';
@@ -226,10 +257,10 @@ async function listenRun(mode, from, initial) {
 $('stop').onclick = () => { stopRequested = true; $('stop').hidden = true; $('phase').textContent = 'Stopping…'; };
 
 $('resume').onclick = async () => {
-  if (busy || !file) return;
+  if (busy || !source) return;
   busy = true;
   try {
-    audioHandle ??= await openAudio(file);
+    audioHandle ??= await openAudio(source);
     await run(book.mode || $('mode').value, book.scanned || 0, book.chapters);
   } catch (e) { showError('Something went wrong.', String(e.message || e)); }
   busy = false;
@@ -241,13 +272,14 @@ async function release() {
   whisper?.stop(); whisper = null;
   if (audioHandle) { await audioHandle.close(); audioHandle = null; }
   if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+  timeline = []; curPart = 0;
   $('player').hidden = true;
 }
 
 // ---------- player + chapter list ----------
 function persist() {
-  if (file && book) {
-    store.set(storeKey(file), { title: book.title, chapters: book.chapters, source: book.source,
+  if (book?.key) {
+    store.set(book.key, { title: book.title, chapters: book.chapters, source: book.source,
       scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model });
   }
 }
@@ -256,8 +288,14 @@ function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 
 function showPlayer(live = false, flash = -1) {
   $('player').hidden = false;
   $('title').textContent = book.title;
-  $('audio').hidden = !playable;
+  const many = timeline.length > 1;
+  $('audio').hidden = !playable || many;      // many files: our own bar, which spans the whole book
+  $('tport').hidden = !playable || !many;
   $('controls').hidden = !playable;
+  $('exAudio').textContent = many ? 'One audiobook file with chapters' : 'Audio with chapters';
+  $('exNote').textContent = many
+    ? `“One audiobook file with chapters” joins your ${timeline.length} files into a single audiobook (no re-encoding) with the chapter titles written in, so players show them as track titles. It builds the whole book in memory, so very large books may fail; use the other formats then.`
+    : '“Audio with chapters” keeps the same audio and writes the chapter titles into the file, so players show them as track titles. It builds the file in memory, so very large books (over ~1 GB) may fail; use the other formats then.';
   $('source').textContent = !playable ? "Your browser can't play this file type, so there is no player here, but the chapters are found and can be saved below."
     : live ? 'Listening to the book. Chapters appear as they are heard…' : SOURCES[book.source] || '';
   $('relisten').hidden = live;
@@ -267,11 +305,65 @@ function showPlayer(live = false, flash = -1) {
     $('resumeText').textContent = `Listened to ${fmtTime(book.scanned)} of ${fmtTime(book.duration)} so far. The chapters found up to there are below.`;
     $('resume').textContent = `Continue listening from ${fmtTime(book.scanned)}`;
   }
+  // Done: say plainly that the original file is untouched and how to get the chapter titles into a file.
+  const done = !live && !unfinished && book.chapters.length > 0;
+  $('saveBox').hidden = !done;
+  if (done && !book.savedAs) {
+    $('saveText').textContent = `${book.chapters.length} chapters found. Your original ${timeline.length > 1 ? 'files are' : 'file is'} not changed: `
+      + 'save a copy with the chapter titles written in. It goes to your Downloads folder.';
+  }
   renderChapters(flash);
+  syncTransport();   // the bar needs the book's length before anything plays
 }
 
+// ---------- playback across files ----------
+// The browser plays one file at a time; these keep a single timeline for the whole book.
+const partAt = (t) => { let i = timeline.length - 1; while (i > 0 && timeline[i].start > t) i--; return Math.max(0, i); };
+const getTime = () => (timeline[curPart]?.start || 0) + ($('audio').currentTime || 0);
+
+async function loadPart(i) {
+  if (i === curPart && objectUrl) return;
+  const el = $('audio');
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = URL.createObjectURL(new Blob([timeline[i].file], { type: mimeFor(timeline[i].file) }));
+  curPart = i;
+  const metadata = playerDuration(el);
+  el.src = objectUrl;
+  await metadata;
+}
+async function seekTo(t, play = false) {
+  if (!timeline.length) return;
+  t = Math.min(Math.max(0, t), book?.duration ?? t);
+  const i = partAt(t), el = $('audio');
+  await loadPart(i);
+  el.currentTime = Math.max(0, t - timeline[i].start);
+  if (play) el.play().catch(() => {});
+}
+$('audio').onended = async () => {   // on to the next file
+  if (curPart < timeline.length - 1) {
+    await loadPart(curPart + 1);
+    $('audio').play().catch(() => {});
+  }
+};
+
+// The bar shown when a book is made of many files.
+let scrubbing = false;
+function syncTransport() {
+  if (!book) return;
+  const t = getTime();
+  $('tPlay').textContent = $('audio').paused ? '▶' : '⏸';
+  $('tPlay').setAttribute('aria-label', $('audio').paused ? 'Play' : 'Pause');
+  $('tSeek').max = Math.floor(book.duration);
+  if (!scrubbing) $('tSeek').value = Math.floor(t);
+  $('tTime').textContent = `${fmtTime(scrubbing ? +$('tSeek').value : t)} / ${fmtTime(book.duration)}`;
+}
+$('tPlay').onclick = () => { const el = $('audio'); if (el.paused) el.play().catch(() => {}); else el.pause(); };
+$('tSeek').oninput = () => { scrubbing = true; syncTransport(); };
+$('tSeek').onchange = async () => { await seekTo(+$('tSeek').value); scrubbing = false; syncTransport(); };
+$('audio').onplay = $('audio').onpause = syncTransport;
+
 function currentIndex() {
-  const t = $('audio').currentTime;
+  const t = getTime();
   let idx = -1;
   book.chapters.forEach((c, i) => { if (c.start <= t + 0.25) idx = i; });
   return idx;
@@ -287,7 +379,7 @@ function renderChapters(flash = -1) {
     const [num, time, input, del] = li.children;
     num.textContent = i + 1;
     time.textContent = fmtTime(c.start);
-    time.onclick = () => { $('audio').currentTime = c.start; $('audio').play(); };
+    time.onclick = () => seekTo(c.start, true);
     input.value = c.title;
     input.oninput = () => { c.title = input.value; book.source = book.source === 'speech' ? 'speech' : 'manual'; queueSave(); };
     del.onclick = () => { book.chapters.splice(i, 1); persist(); renderChapters(); };
@@ -301,24 +393,24 @@ function highlight() {
   document.querySelectorAll('li.ch').forEach((li, i) => li.classList.toggle('current', i === idx));
 }
 
-$('audio').ontimeupdate = highlight;
-$('speed').onchange = (e) => { $('audio').playbackRate = +e.target.value; };
+$('audio').ontimeupdate = () => { highlight(); syncTransport(); };
+$('speed').onchange = (e) => { $('audio').defaultPlaybackRate = $('audio').playbackRate = +e.target.value; };
 $('prev').onclick = () => {
-  const i = currentIndex(), a = $('audio');
-  const target = i >= 0 && a.currentTime - book.chapters[i].start > 3 ? i : Math.max(0, i - 1);
-  a.currentTime = book.chapters[target]?.start ?? 0;
+  const i = currentIndex();
+  const target = i >= 0 && getTime() - book.chapters[i].start > 3 ? i : Math.max(0, i - 1);
+  seekTo(book.chapters[target]?.start ?? 0);
 };
-$('next').onclick = () => { const n = book.chapters[currentIndex() + 1]; if (n) $('audio').currentTime = n.start; };
+$('next').onclick = () => { const n = book.chapters[currentIndex() + 1]; if (n) seekTo(n.start); };
 $('mark').onclick = () => {
-  book.chapters.push({ start: Math.round($('audio').currentTime * 100) / 100, title: 'New chapter' });
+  book.chapters.push({ start: Math.round(getTime() * 100) / 100, title: 'New chapter' });
   book.chapters.sort((a, b) => a.start - b.start);
   persist(); renderChapters();
 };
 $('relisten').onclick = async () => {
-  if (busy || !file) return;
+  if (busy || !source) return;
   busy = true;
   try {
-    audioHandle ??= await openAudio(file);
+    audioHandle ??= await openAudio(source);
     book.chapters = [];
     $('player').hidden = false;
     await run($('mode').value, 0, []);
@@ -335,17 +427,22 @@ function download(blob, name) {
 }
 const safeName = () => book.title.replace(/[\\/:*?"<>|]+/g, '_');
 $('exMeta').onclick = () => download(new Blob([toFfmetadata(book.chapters, book.duration, book.title)], { type: 'text/plain' }), `${safeName()}.ffmetadata.txt`);
-$('exCue').onclick = () => download(new Blob([toCue(book.chapters, book.title, file.name)], { type: 'text/plain' }), `${safeName()}.cue`);
+$('exCue').onclick = () => download(new Blob([toCue(book.chapters, book.title, Array.isArray(source) ? `${sourceName}.${audioHandle?.ext?.slice(1) || 'm4b'}` : source.name)], { type: 'text/plain' }), `${safeName()}.cue`);
 $('exJson').onclick = () => download(new Blob([JSON.stringify(book.chapters, null, 2)], { type: 'application/json' }), `${safeName()}.chapters.json`);
+$('saveNow').onclick = () => $('exAudio').click();
 $('exAudio').onclick = async () => {
   if (busy) return;
   busy = true;
-  const btn = $('exAudio'), label = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Writing…';
+  const btn = $('exAudio'), label = btn.textContent, label2 = $('saveNow').textContent;
+  btn.disabled = $('saveNow').disabled = true; btn.textContent = $('saveNow').textContent = 'Writing…';
   try {
-    audioHandle ??= await openAudio(file);
+    audioHandle ??= await openAudio(source);
     const blob = await audioHandle.embed(toFfmetadata(book.chapters, book.duration, book.title));
-    download(blob, safeName() + (/\.[a-z0-9]{1,5}$/i.exec(file.name)?.[0] || ''));
+    book.savedAs = safeName() + audioHandle.ext;
+    download(blob, book.savedAs);
+    $('saveText').textContent = `Saved “${book.savedAs}” to your Downloads folder. Open that copy in Apple Books, VLC or another `
+      + 'audiobook player to see the chapter titles (your original is unchanged).';
+    $('saveBox').hidden = false;
   } catch (e) { alert(`Couldn't write the file: ${e.message || e}\nTry the ffmetadata or CUE export instead.`); }
-  btn.disabled = false; btn.textContent = label; busy = false;
+  btn.disabled = $('saveNow').disabled = false; btn.textContent = label; $('saveNow').textContent = label2; busy = false;
 };

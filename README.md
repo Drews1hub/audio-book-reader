@@ -24,6 +24,12 @@ CPU core) and also catches headings that start without a pause, e.g. right after
 pauses without speech recognition. Long silences are shortened before recognition (they break Whisper's word timing)
 and real pauses are measured from the audio itself, so titles stop where the narrator pauses.
 
+A **folder of tracks** (e.g. 117 numbered `.m4b`/`.mp3` files) is treated as one book: drop the folder or select all
+the files. The tracks are put in file-name order, listened to as one timeline, played back to back, and *One audiobook
+file with chapters* joins them into a single file with the chapter titles written in.
+
+The original files are never changed (a web page can't); saving writes a new copy to your Downloads folder.
+
 Chapters and how far it has listened are saved in the browser per file: if the tab closes or you press Stop, pick the
 same file again and choose *Continue listening*. Files the browser can't play itself (e.g. WMA) are still read by
 ffmpeg, so chapters can be found and saved even without the player.

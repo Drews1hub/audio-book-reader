@@ -27,9 +27,9 @@
   <main>
     <section class="tile" id="picker">
       <label class="drop" id="drop" tabindex="0">
-        <input type="file" id="file" accept="audio/*,.m4b,.m4a,.mp3,.aac,.flac,.ogg,.opus,.wav" hidden>
+        <input type="file" id="file" accept="audio/*,.m4b,.m4a,.mp3,.aac,.flac,.ogg,.opus,.wav" multiple hidden>
         <strong>Choose an audiobook</strong>
-        <span class="muted">or drop it here · MP3, M4B, M4A, FLAC, OGG, WAV</span>
+        <span class="muted">or drop it here, a whole folder of tracks works too · MP3, M4B, M4A, FLAC, OGG, WAV</span>
       </label>
       <div class="control-row">
         <label class="field">How to listen
@@ -60,11 +60,20 @@
 
     <section class="tile" id="player" hidden>
       <div class="row"><h2 id="title"></h2><button id="relisten" class="ghost">Listen again</button></div>
+      <div class="resume" id="saveBox" hidden>
+        <span id="saveText"></span>
+        <button id="saveNow" class="primary">Save audiobook with chapters</button>
+      </div>
       <div class="resume" id="resumeBox" hidden>
         <span id="resumeText">It stopped partway through.</span>
         <button id="resume" class="primary">Continue listening</button>
       </div>
       <audio id="audio" controls preload="metadata"></audio>
+      <div class="tport" id="tport" hidden>
+        <button id="tPlay" aria-label="Play">▶</button>
+        <input type="range" id="tSeek" min="0" max="1" step="1" value="0" aria-label="Position in the book">
+        <span id="tTime" class="muted small">0:00 / 0:00</span>
+      </div>
       <div class="row wrap" id="controls">
         <button id="prev">⏮ Previous</button><button id="next">Next ⏭</button>
         <button id="mark" class="ghost">＋ Mark chapter here</button>
