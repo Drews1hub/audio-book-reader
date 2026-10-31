@@ -53,6 +53,10 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
 - Each chapter row has a ▶ that plays its first 15 s (`previewChapter`) so a missed title can be typed by ear; Enter in a
   title box moves to the next chapter and plays it. Anything else that takes over playback calls `cancelPreview()` so
   the clip's timer can't pause it later.
+- Only "Chapter N" (also Part/Book/Section/Appendix + number) counts by default. Counting a number said on its own after
+  a pause ("Twelve.") is the opt-in `bareNumbers` option: on by default it turned ordinary story lines into chapters
+  for the owner. Headings go in through `insertChapter`, which keeps one heading per spot (overlapping clips hear the
+  same one twice) and the list in time order.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test

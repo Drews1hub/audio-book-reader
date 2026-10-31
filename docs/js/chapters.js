@@ -38,10 +38,12 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
  * Scan timestamped words [{word, start, end}] for spoken chapter headings.
  * A heading must begin a sentence (the previous word ends with . ! ? : or a pause of >= `gap` s precedes it).
  * The title is the words that follow, up to a sentence end, a pause >= `titleGap`, or `maxTitleWords`.
+ * Only a number after "Chapter" (or Part, Book, Section, Appendix) counts, unless `bareNumbers` is on: that also accepts a
+ * number said alone after a long pause ("Twelve."), which also matches ordinary lines in the story, so it is off by default.
  * Returns [{start, title}].
  */
 export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWords = 10, silences = [],
-  bareNumbers = true, strongPause = 1.2, startsAfterPause = false } = {}) {
+  bareNumbers = false, strongPause = 1.2, startsAfterPause = false } = {}) {
   const found = [];
   const n = words.length;
   // Whisper stamps a word after a pause right at the end of the word before it, so pauses are also read from the
@@ -129,6 +131,23 @@ export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWo
     i = j;
   }
   return found;
+}
+
+/**
+ * Put a heading into the chapter list, in time order. A heading within 5 s of one already there is the same heading
+ * heard again (overlapping clips): keep the fuller title. Returns true if the list changed.
+ */
+export function insertChapter(chapters, heading) {
+  const a = { start: heading.start, title: heading.title };
+  const same = chapters.findIndex((c) => Math.abs(c.start - a.start) < 5);
+  if (same >= 0) {
+    if (a.title.length <= chapters[same].title.length) return false;
+    chapters[same] = a;
+    return true;
+  }
+  chapters.push(a);
+  chapters.sort((x, y) => x.start - y.start);
+  return true;
 }
 
 /** Runs of quiet audio. samples: Float32Array at `rate` Hz. Returns [{start, end}] in seconds from the start of `samples`. */

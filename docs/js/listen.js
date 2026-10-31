@@ -1,5 +1,5 @@
 // Walks through the book window by window and builds the chapter list.
-import { findAnnouncements, findSilences, squeezeSilences, unsqueeze } from './chapters.js';
+import { findAnnouncements, findSilences, insertChapter, squeezeSilences, unsqueeze } from './chapters.js';
 import { RATE } from './audio.js';
 
 export class Whisper {
@@ -119,7 +119,7 @@ export async function inOrder({ items, limit = 1, prepare, commit, shouldStop = 
  * Windows are read one at a time but recognised in parallel (`whisper.size` at once); results are committed in order.
  */
 export async function listen({ audio, duration, mode, whisper, onProgress, onChapters, shouldStop,
-  onScanned = () => {}, onHeard = () => {}, from = 0, initial = [], step = 600, overlap = 20 }) {
+  onScanned = () => {}, onHeard = () => {}, bareNumbers = false, from = 0, initial = [], step = 600, overlap = 20 }) {
   // `onHeard({ start, text })` reports the first words after each long pause, so people can see what the
   // narrator says where chapters ought to start (and why none were found, if so).
   // `from`/`initial` resume an earlier run; `onScanned(t)` reports that everything before t has been listened to.
@@ -140,16 +140,8 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
   const add = (a, windowStart, last) => {
     if (a.start >= windowStart + step && !last) return;
     if (a.start < windowStart && windowStart > 0) return;
-    const prev = chapters[chapters.length - 1];
-    if (prev && Math.abs(a.start - prev.start) < 5) {
-      // Same heading heard twice (overlapping clips); keep the fuller one, since a clip can end mid-title.
-      if (a.title.length <= prev.title.length) return;
-      chapters[chapters.length - 1] = a;
-      onChapters([...chapters], a);
-      return;
-    }
-    chapters.push(a);
-    onChapters([...chapters], a);
+    // The same heading can turn up in more than one clip (they overlap): insertChapter keeps one, the fuller one.
+    if (insertChapter(chapters, a)) onChapters([...chapters], a);
   };
 
   if (mode === 'pauses') {
@@ -198,7 +190,7 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
     const { words, silences } = await hear(clip, offset);
     const points = silences.filter((s) => s.end - s.start >= 1.0).map((s) => s.end);
     return {
-      found: findAnnouncements(words, { silences, startsAfterPause }),
+      found: findAnnouncements(words, { silences, startsAfterPause, bareNumbers }),
       heard: heardAt(words, startsAfterPause ? [offset + 0.3] : points, windowEnd),
     };
   };

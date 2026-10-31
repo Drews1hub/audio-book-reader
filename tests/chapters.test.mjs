@@ -1,7 +1,7 @@
 // Run: node --test tests/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bookTags, toCue, findAnnouncements, findSilences, squeezeSilences, unsqueeze, toFfmetadata, parseFfmetadata, fmtNum } from '../docs/js/chapters.js';
+import { bookTags, insertChapter, toCue, findAnnouncements, findSilences, squeezeSilences, unsqueeze, toFfmetadata, parseFfmetadata, fmtNum } from '../docs/js/chapters.js';
 
 function words(text, pauses = []) {
   const out = [];
@@ -78,16 +78,18 @@ test('a number said on its own after a long pause is a chapter heading', () => {
   // "...end of the last chapter. [2 s pause] Twelve. [0.8 s] The Long Road Home. [1 s] It was cold"
   const w = words('end of the chapter. Twelve. The Long Road Home. It was cold', [3, 4, 8]);
   w.forEach((x, i) => { if (i >= 4) { x.start += 1; x.end += 1; } });   // the pause before "Twelve." is 2 s
-  assert.deepEqual(findAnnouncements(w).map((a) => a.title), ['Chapter 12: The Long Road Home']);
+  assert.deepEqual(findAnnouncements(w).map((a) => a.title), [], 'off by default');
+  assert.deepEqual(findAnnouncements(w, { bareNumbers: true }).map((a) => a.title), ['Chapter 12: The Long Road Home']);
   // at the very start of a clip that begins right after a pause (Quick mode)
-  assert.equal(findAnnouncements(words('Twenty one. Fire and Ice. Snow fell', [1, 4]), { startsAfterPause: true })[0].title, 'Chapter 21: Fire and Ice');
+  assert.equal(findAnnouncements(words('Twenty one. Fire and Ice. Snow fell', [1, 4]), { startsAfterPause: true, bareNumbers: true })[0].title, 'Chapter 21: Fire and Ice');
 });
 
 test('ordinary numbers in the story are not headings', () => {
-  assert.deepEqual(findAnnouncements(words('One day she left. Two men followed her', [3])), []);       // no long pause
-  assert.deepEqual(findAnnouncements(words('He counted. Three. Four. Five.', [1])), []);                 // 1 s pause < 1.2 s
-  assert.deepEqual(findAnnouncements(words('One day she left', []), { startsAfterPause: true }), []);   // "One day…" is not alone
-  assert.deepEqual(findAnnouncements(words('I walked home', []), { startsAfterPause: true }), []);      // Roman "I" never bare
+  const on = { bareNumbers: true };
+  assert.deepEqual(findAnnouncements(words('One day she left. Two men followed her', [3]), on), []);       // no long pause
+  assert.deepEqual(findAnnouncements(words('He counted. Three. Four. Five.', [1]), on), []);                 // 1 s pause < 1.2 s
+  assert.deepEqual(findAnnouncements(words('One day she left', []), { startsAfterPause: true, ...on }), []); // "One day…" is not alone
+  assert.deepEqual(findAnnouncements(words('I walked home', []), { startsAfterPause: true, ...on }), []);    // Roman "I" never bare
 });
 
 test('title and author become the tags that stop "Unknown Artist / Unknown Album"', () => {
@@ -102,4 +104,28 @@ test('title and author become the tags that stop "Unknown Artist / Unknown Album
   assert.equal(back.tags.album, 'My Book');
   assert.equal(parseFfmetadata(toFfmetadata([], 10, 'Plain title')).tags.title, 'Plain title');   // old call style still works
   assert.match(toCue([{ start: 0, title: 'One' }], 'My Book', 'x.m4b', 'A. Writer'), /PERFORMER "A\. Writer"/);
+});
+
+test('by default only "Chapter N" counts: a number alone after a pause in the story is not a chapter', () => {
+  // "...the door. [2 s] Three. [0.5 s] Three men stood outside."  /  "Twelve. It was twelve o'clock."
+  const story = words('he knocked. Three. Three men stood outside. Twelve. It was twelve o clock', [2, 3, 6, 7, 8]);
+  story.forEach((w, i) => { if (i === 3 || i === 7) { w.start += 1.2; w.end += 1.2; } });
+  assert.deepEqual(findAnnouncements(story), []);
+  assert.deepEqual(findAnnouncements(story, { startsAfterPause: true }), []);
+  // while real headings are still found
+  assert.equal(findAnnouncements(words('Chapter three. The Door. He knocked'), { startsAfterPause: true })[0].title, 'Chapter 3: The Door');
+  assert.equal(findAnnouncements(words('and then it ended. Part two. The Return. Years passed'))[0].title, 'Part 2: The Return');
+});
+
+test('insertChapter: the same heading heard again is kept once (the fuller title), and the list stays in time order', () => {
+  const list = [];
+  insertChapter(list, { start: 2, title: 'Chapter 1: The door' });
+  insertChapter(list, { start: 30, title: 'Chapter 3' });
+  // an overlapping clip hears both again, one with a longer title, in an order that used to make duplicates
+  assert.equal(insertChapter(list, { start: 2.4, title: 'Chapter 1' }), false);                 // shorter: ignore
+  assert.equal(insertChapter(list, { start: 30.2, title: 'Chapter 3: Three men' }), true);      // fuller: replace
+  assert.deepEqual(list, [{ start: 2, title: 'Chapter 1: The door' }, { start: 30.2, title: 'Chapter 3: Three men' }]);
+  insertChapter(list, { start: 15, title: 'Chapter 2' });                                        // found late: slotted into place
+  assert.deepEqual(list.map((c) => c.start), [2, 15, 30.2]);
+  assert.ok(list.every((c) => Object.keys(c).sort().join() === 'start,title'));
 });

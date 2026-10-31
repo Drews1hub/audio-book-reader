@@ -266,11 +266,13 @@ async function listenRun(mode, from, initial) {
     }
   }
   book.note = '';
+  // Only "Chapter N" unless asked otherwise; a resumed run keeps the choice it started with.
+  book.bareNumbers = from > 0 && book.bareNumbers !== undefined ? book.bareNumbers : $('bareNumbers').checked;
   if (from === 0) { book.heard = []; $('heardList').innerHTML = ''; }
   book.heard ??= [];
   let live = true;
   const chapters = await listen({
-    audio: audioHandle, duration: book.duration, mode, whisper, from, initial,
+    audio: audioHandle, duration: book.duration, mode, whisper, from, initial, bareNumbers: book.bareNumbers,
     shouldStop: () => stopRequested,
     onScanned: (t, list) => { book.scanned = t; if (mode !== 'pauses') book.chapters = list; persist(); },
     onHeard: (h) => {
@@ -324,7 +326,7 @@ async function release() {
 function persist() {
   if (book?.key) {
     store.set(book.key, { title: book.title, author: book.author, chapters: book.chapters, source: book.source,
-      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, heard: book.heard, note: book.note,
+      scanned: book.scanned ?? book.duration, mode: book.mode, model: book.model, bareNumbers: book.bareNumbers, heard: book.heard, note: book.note,
       savedAt: Date.now() });
   }
 }
