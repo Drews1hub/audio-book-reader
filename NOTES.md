@@ -46,6 +46,10 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
   QuickTime chapter track that shows up as a data stream, and copying it fails with "Tag text incompatible with output
   codec ... Could not write header" (the owner hit this). Chapters are written from our own list. The test that covers
   it (tests/audio.test.mjs, needs ffmpeg on the PATH) fails on the old code.
+- The page reads the book from where it is on disk until it is saved. If the file is moved/renamed/deleted meanwhile
+  (the owner hit this, likely iTunes/Books moving it), Chrome throws NotFoundError from FileReaderSync. `missingFile()`
+  checks before saving and `lostMessage` explains it. Saved results are keyed by name + size (`abr:v2:`), not modified
+  time, so dropping a moved/copied file again restores its chapters (older `abr:v1:` keys are still read).
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test

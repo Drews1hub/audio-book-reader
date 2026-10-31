@@ -26,9 +26,28 @@ const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', m4b: 'audio/mp4', mp4: 'audi
 const mimeFor = (f) => f.type || MIME[(f.name.split('.').pop() || '').toLowerCase()] || '';
 
 const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+// A book is recognised by name and size, not by modified time: a moved or copied file gets a new modified time, and
+// dropping it again must bring its chapters back instead of making the person listen all over again.
 const storeKey = (src, name) => (Array.isArray(src)
+  ? `abr:v2:folder:${name}:${src.length}:${src.reduce((n, f) => n + f.size, 0)}`
+  : `abr:v2:${src.name}:${src.size}`);
+const legacyKey = (src, name) => (Array.isArray(src)    // what earlier versions saved under
   ? `abr:v1:folder:${name}:${src.length}:${src.reduce((n, f) => n + f.size, 0)}:${src[0].lastModified}`
   : `abr:v1:${src.name}:${src.size}:${src.lastModified}`);
+
+// The page reads the book from where it sits on the disk. If that file is moved, renamed or deleted afterwards (iTunes
+// and Books can move a book when it is added), the browser reports NotFoundError / NotReadableError.
+const isLostFile = (e) => /NotFoundError|NotReadableError|FileReaderSync|could not be found|could not be read/i.test(String(e?.name || '') + ' ' + String(e?.message || e));
+async function missingFile() {
+  for (const f of (Array.isArray(source) ? source : [source])) {
+    try { await f.slice(0, 1).arrayBuffer(); } catch { return f.name; }
+  }
+  return null;
+}
+const lostMessage = (name) => `The page can't find your original file any more (${name || 'the book'}). It was probably moved, renamed or deleted, `
+  + 'which can happen when a book is added to iTunes or Books. Put it back where it was, or drop it onto this page again: '
+  + 'your chapters are remembered, so there is no need to listen again. Then click Save.';
+const problem = (e) => (isLostFile(e) ? lostMessage(sourceName) : String(e?.message || e));
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode / full */ } },
@@ -159,7 +178,7 @@ async function load(src, name) {
       : [{ file: first, start: 0, duration }];
     const key = storeKey(src, sourceName);
     const stem = multi ? sourceName : first.name.replace(/\.[^.]+$/, '');
-    let saved = store.get(key);
+    let saved = store.get(key) ?? store.get(legacyKey(src, sourceName));
     // Older versions silently fell back to marking pauses when no headings were heard. Those results (pause guesses
     // from a run that was meant to listen) are wrong, so never bring them back.
     if (saved?.source === 'pauses' && saved.mode && saved.mode !== 'pauses') saved = null;
@@ -186,7 +205,7 @@ async function load(src, name) {
     }
     $('progress').hidden = true; persist(); showPlayer();
   } catch (e) {
-    showError('Something went wrong.', String(e.message || e));
+    showError('Something went wrong.', problem(e));
   } finally {
     busy = false;
   }
@@ -287,7 +306,7 @@ $('resume').onclick = async () => {
   try {
     audioHandle ??= await openAudio(source);
     await run(book.mode || $('mode').value, book.scanned || 0, book.chapters);
-  } catch (e) { showError('Something went wrong.', String(e.message || e)); }
+  } catch (e) { showError('Something went wrong.', problem(e)); }
   busy = false;
   $('progress').hidden = true; persist(); showPlayer();
 };
@@ -485,7 +504,7 @@ $('relisten').onclick = async () => {
     book.chapters = [];
     $('player').hidden = false;
     await run($('mode').value, 0, []);
-  } catch (e) { showProgress('Something went wrong.', String(e.message || e), 0); }
+  } catch (e) { showProgress('Something went wrong.', problem(e), 0); }
   busy = false;
   $('progress').hidden = true; persist(); showPlayer();
 };
@@ -507,6 +526,8 @@ $('exAudio').onclick = async () => {
     $('bookAuthor').focus();
     return;
   }
+  const gone = await missingFile();
+  if (gone) { alert(lostMessage(gone)); return; }
   busy = true;
   const btn = $('exAudio'), label = btn.textContent, label2 = $('saveNow').textContent;
   btn.disabled = $('saveNow').disabled = true; btn.textContent = $('saveNow').textContent = 'Writing…';
@@ -519,6 +540,8 @@ $('exAudio').onclick = async () => {
       + 'audiobook player to see the chapter titles (your original is unchanged).'
       + (audioHandle.savedWithoutCover ? ' The cover picture could not be copied, so it was left out.' : '');
     $('saveBox').hidden = false;
-  } catch (e) { alert(`Couldn't write the file: ${e.message || e}\nTry the ffmetadata or CUE export instead.`); }
+  } catch (e) {
+    alert(isLostFile(e) ? lostMessage(sourceName) : `Couldn't write the file: ${e.message || e}\nTry the ffmetadata or CUE export instead.`);
+  }
   btn.disabled = $('saveNow').disabled = false; btn.textContent = label; $('saveNow').textContent = label2; busy = false;
 };
