@@ -39,10 +39,11 @@ import { WhisperPool, inOrder, pickWorkers } from '../docs/js/listen.js';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test('pickWorkers: a sensible number for the computer, or the person\'s own choice', () => {
-  assert.equal(pickWorkers({ cores: 8 }), 3);
+  assert.equal(pickWorkers({ cores: 8 }), 2);                   // at most 2 on automatic: each worker holds ~1.1 GB
+  assert.equal(pickWorkers({ cores: 16, memoryGB: 8 }), 2);
   assert.equal(pickWorkers({ cores: 4 }), 2);
   assert.equal(pickWorkers({ cores: 2 }), 1);
-  assert.equal(pickWorkers({ cores: 16, memoryGB: 4 }), 2);     // low memory: fewer copies of the model
+  assert.equal(pickWorkers({ cores: 16, memoryGB: 4 }), 1);     // low memory: one copy of the model
   assert.equal(pickWorkers({ cores: 16, memoryGB: 2 }), 1);
   assert.equal(pickWorkers({ cores: 16, gpu: true }), 1);        // the GPU does the work
   assert.equal(pickWorkers({ cores: 2, chosen: 4 }), 4);         // their choice wins

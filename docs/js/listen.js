@@ -34,16 +34,15 @@ export class Whisper {
 }
 
 /**
- * How many speech workers to run at once: one per two processor cores (up to 3), fewer on low-memory computers,
- * one for the GPU. `chosen` is the person's own pick (1-4); 0 or undefined means automatic.
+ * How many speech workers to run at once: one per two processor cores, at most 2 (measured: each extra worker holds
+ * about 1.1 GB of memory, and the third adds little speed), one on low-memory computers and for the GPU.
+ * `chosen` is the person's own pick (1-4); 0 or undefined means automatic.
  */
 export function pickWorkers({ cores = 2, memoryGB, gpu = false, chosen = 0 } = {}) {
   if (gpu) return 1;
   if (chosen >= 1) return Math.min(4, Math.floor(chosen));
-  let n = Math.max(1, Math.min(3, Math.floor(cores / 2)));
-  if (memoryGB && memoryGB <= 2) n = 1;
-  else if (memoryGB && memoryGB <= 4) n = Math.min(n, 2);
-  return n;
+  const n = Math.max(1, Math.min(2, Math.floor(cores / 2)));
+  return memoryGB && memoryGB <= 4 ? 1 : n;
 }
 
 /**

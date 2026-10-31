@@ -39,7 +39,7 @@ Publish: repository **Settings → Pages → Build and deployment → Deploy fro
 `/docs` folder. Try it locally with `cd docs && python3 -m http.server`.
 
 Recognition runs on the CPU. GitHub Pages can't enable multi-threading, so instead several speech workers (one per two
-cores, up to 3 by default, fewer on low-memory computers; the *Processor cores* setting overrides it) listen to
+cores, 2 at most by default and 1 on low-memory computers (each holds about 1.1 GB); the *Processor cores* setting overrides it) listen to
 different ten-minute stretches of the book at the same time. Each worker holds its own copy of the model. The GPU option (WebGPU) is
 experimental and untested.
 Tests: `node --test tests/*.test.mjs`.
