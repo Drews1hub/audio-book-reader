@@ -43,9 +43,28 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
  * Returns [{start, title}].
  */
 export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWords = 10, silences = [],
-  bareNumbers = false, strongPause = 1.2, startsAfterPause = false } = {}) {
+  bareNumbers = false, strongPause = 1.2, startsAfterPause = false, clipStart } = {}) {
   const found = [];
   const n = words.length;
+  // Where a chapter begins: the first sound after the pause before it (the entry music, if there is any). The speech
+  // model's time for the first word is unreliable here: it often stamps it at the end of the previous chapter's last
+  // word, so a marker built from it plays that last syllable. The silences come from the audio itself instead.
+  const SNAP_MIN = 0.8;   // a pause of at least this long counts as the gap before a chapter
+  const startOf = (i) => {
+    const ws = words[i].start;
+    let lastBefore = -Infinity;                          // end of the last real word said before the heading
+    for (let k = i - 1; k >= 0; k--) if (/[a-z0-9]/i.test(words[k].word)) { lastBefore = words[k].end; break; }
+    // earliest pause after that word that began no later than the heading's own (stamped) start; a pause inside the
+    // heading ("Chapter 12. [pause] The Storm") begins later and is left alone
+    const gapBefore = silences.find((s) => s.end - s.start >= SNAP_MIN && s.start >= lastBefore - 0.3 && s.start <= ws + 0.3);
+    // A little before the first sound: the pause is verified quiet, so this cannot catch the last syllable before it,
+    // and it keeps the quiet first moments of a music fade-in.
+    if (gapBefore) return Math.max(0, gapBefore.start, gapBefore.end - 0.3);
+    // a clip that starts right after a pause (Quick mode) begins inside that pause: the chapter starts with the clip
+    if (startsAfterPause && lastBefore === -Infinity && clipStart !== undefined) return clipStart;
+    return ws - 0.3;
+  };
+  const round2 = (x) => Math.round(x * 100) / 100;
   // Whisper stamps a word after a pause right at the end of the word before it, so pauses are also read from the
   // audio itself (`silences`, [{start, end}] in the same timeline): length of the pause before word j.
   const pauseBefore = (j) => {
@@ -87,7 +106,7 @@ export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWo
       }
       const text = title.join(' ').replace(/^[\s.,:;!?\u2014-]+|[\s.,:;!?\u2014-]+$/g, '');
       found.push({
-        start: Math.max(0, Math.round((words[i].start - 0.3) * 100) / 100),
+        start: Math.max(0, round2(startOf(i))),
         title: text && title.length < maxTitleWords ? `Chapter ${fmtNum(num)}: ${text}` : `Chapter ${fmtNum(num)}`,
       });
       i = j;
@@ -125,7 +144,7 @@ export function findAnnouncements(words, { gap = 0.5, titleGap = 0.7, maxTitleWo
     }
     const text = title.join(' ').replace(/^[\s.,:;!?\u2014-]+|[\s.,:;!?\u2014-]+$/g, '');
     found.push({
-      start: Math.max(0, Math.round((words[i].start - 0.3) * 100) / 100),
+      start: Math.max(0, round2(startOf(i))),
       title: text && title.length < maxTitleWords ? `${label}: ${text}` : label,
     });
     i = j;

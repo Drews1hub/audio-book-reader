@@ -129,3 +129,40 @@ test('insertChapter: the same heading heard again is kept once (the fuller title
   assert.deepEqual(list.map((c) => c.start), [2, 15, 30.2]);
   assert.ok(list.every((c) => Object.keys(c).sort().join() === 'start,title'));
 });
+
+// ---- where a chapter starts: the first sound after the pause before it ----
+const W = (word, start, end) => ({ word, start, end });
+test('marker: at the start of the entry music, not at the speech model\'s early guess', () => {
+  // The previous chapter ends at 0.5 s. A 2.5 s pause (0.55-3.05), then music, then the narrator says the heading,
+  // but the speech model stamps "Chapter" right at the end of the previous word, as it does after a pause.
+  const words = [W('ending.', 0, 0.5), W('Chapter', 0.5, 0.9), W('twelve.', 0.9, 1.4), W('The', 1.4, 1.6), W('Storm.', 1.6, 2.0)];
+  const heading = findAnnouncements(words, { silences: [{ start: 0.55, end: 3.05 }] })[0];
+  assert.equal(heading.title, 'Chapter 12: The Storm');
+  assert.equal(heading.start, 2.75);                       // 0.3 s before the music starts (3.05), inside the quiet pause
+});
+
+test('marker: a word the model stamped inside the pause still starts at the end of the pause', () => {
+  const words = [W('ending.', 0, 0.5), W('Chapter', 1.2, 1.6), W('twelve.', 1.6, 2.0)];
+  assert.equal(findAnnouncements(words, { silences: [{ start: 0.55, end: 3.05 }] })[0].start, 2.75);
+});
+
+test('marker: with no music, the pause ends where the words begin', () => {
+  const words = [W('ending.', 0, 0.5), W('Chapter', 2.0, 2.4), W('twelve.', 2.4, 2.9)];
+  assert.equal(findAnnouncements(words, { silences: [{ start: 0.55, end: 2.0 }] })[0].start, 1.7);    // 0.3 s before the words, inside the pause
+});
+
+test('marker: a pause inside the heading, or inside the earlier chapter, is not used', () => {
+  // earlier chapter: "text [pause 0.5-2.0] more words." then the chapter gap (3.05-5.0) then the heading
+  const words = [W('text', 0, 0.4), W('more', 2.0, 2.4), W('words.', 2.4, 3.0), W('Chapter', 3.0, 3.4), W('twelve.', 3.4, 3.8),
+    W('The', 4.9, 5.1), W('Storm.', 5.1, 5.6)];
+  const inside = { start: 3.9, end: 4.8 };                       // between "twelve." and the title
+  const h = findAnnouncements(words, { silences: [{ start: 0.5, end: 2.0 }, { start: 3.05, end: 5.0 }, inside] })[0];
+  assert.equal(h.start, 4.7);                                     // the gap before the chapter (ends 5.0), not the earlier pause (1.7) or the one inside the heading
+});
+
+test('marker: a Quick-mode clip starts inside the pause before the chapter, so the chapter starts with the clip', () => {
+  // music for the first 6 s of the clip, no words; the narrator starts at 106 s
+  assert.equal(findAnnouncements([W('Chapter', 106.0, 106.4), W('twelve.', 106.4, 106.9)], { startsAfterPause: true, clipStart: 100 })[0].start, 100);
+  // without that guarantee (Thorough mode, mid-book) it falls back to the old rule
+  assert.equal(findAnnouncements([W('Chapter', 106.0, 106.4), W('twelve.', 106.4, 106.9)], {})[0].start, 105.7);
+});

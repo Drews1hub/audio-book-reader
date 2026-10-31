@@ -190,7 +190,7 @@ export async function listen({ audio, duration, mode, whisper, onProgress, onCha
     const { words, silences } = await hear(clip, offset);
     const points = silences.filter((s) => s.end - s.start >= 1.0).map((s) => s.end);
     return {
-      found: findAnnouncements(words, { silences, startsAfterPause, bareNumbers }),
+      found: findAnnouncements(words, { silences, startsAfterPause, bareNumbers, clipStart: offset }),
       heard: heardAt(words, startsAfterPause ? [offset + 0.3] : points, windowEnd),
     };
   };

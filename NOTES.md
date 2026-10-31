@@ -57,6 +57,11 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
   a pause ("Twelve.") is the opt-in `bareNumbers` option: on by default it turned ordinary story lines into chapters
   for the owner. Headings go in through `insertChapter`, which keeps one heading per spot (overlapping clips hear the
   same one twice) and the list in time order.
+- A chapter marker goes at the **first sound after the pause before the chapter** (the entry music), measured from the
+  audio's silences, not from Whisper's word time: Whisper stamps the first word after a pause at the end of the previous
+  word, which put markers on the last syllable before a chapter (or, after music, seconds late). See `startOf` in
+  `findAnnouncements`; the marker sits 0.3 s inside the quiet pause so a music fade-in keeps its start, and the ▶ preview
+  plays from the marker exactly. Checked with spoken audio + synthetic music: within 0.06 s of the true start.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test

@@ -475,7 +475,7 @@ function cancelPreview() {  // forget the clip without touching playback (someth
 function stopPreview() { if (previewing) { $('audio').pause(); cancelPreview(); } }
 async function previewChapter(chapter, button, row) {
   cancelPreview();
-  await seekTo(Math.max(0, chapter.start - 0.5), true);
+  await seekTo(chapter.start, true);   // the marker is the first sound after the pause, so no lead-in (it would catch the last syllable before it)
   button.textContent = '■';
   button.setAttribute('aria-label', 'Stop listening');
   row.classList.add('previewing');
