@@ -16,6 +16,16 @@ const MAX_JOBS = 50;
 let jobs = 0;
 const mounts = new Map();   // dir -> files, to mount again after a restart
 
+// The engine does one thing at a time: its scratch files (/win.raw, ...) are shared and it can be restarted between
+// runs. Listening reads the next window while an earlier one may be going back over a stretch, so everything that
+// touches the engine takes its turn here.
+let turn = Promise.resolve();
+const inTurn = (fn) => {
+  const run = turn.then(fn, fn);
+  turn = run.then(() => {}, () => {});
+  return run;
+};
+
 async function engine() {
   if (ff) return ff;
   loading ??= (async () => {
@@ -73,7 +83,8 @@ export async function openAudio(source) {
   let layout = null;
 
   // Length of one file, read by ffmpeg (works for formats the browser's own player can't open).
-  async function lengthOf(input, onFallback) {
+  const lengthOf = (input, onFallback) => inTurn(() => lengthOfNow(input, onFallback));
+  async function lengthOfNow(input, onFallback) {
     const f = await nextEngine();
     let text = '';
     const onLog = ({ message }) => { text += message + '\n'; };
@@ -126,7 +137,8 @@ export async function openAudio(source) {
   }
   const ensureLayout = () => layout ?? measure();
 
-  async function decodeFrom(input, start, length) {
+  const decodeFrom = (input, start, length) => inTurn(() => decodeNow(input, start, length));
+  async function decodeNow(input, start, length) {
     const f = await nextEngine();
     try {
       const code = await f.exec(['-ss', String(start), '-t', String(length), '-i', input,
@@ -151,7 +163,8 @@ export async function openAudio(source) {
      */
     async duration(opts) { return measure(typeof opts === 'function' ? { onFallback: opts } : opts); },
     /** Tags already inside the file, and its chapters (single files only; separate tracks carry none). */
-    async probe() {
+    probe() { return inTurn(() => handle.probeNow()); },
+    async probeNow() {
       const f = await nextEngine();
       try {
         await f.exec(['-i', parts[0].input, '-f', 'ffmetadata', '/probe.txt']);
@@ -182,7 +195,8 @@ export async function openAudio(source) {
      * The audio with the chapter list written in, without re-encoding. Many files are joined into one.
      * Needs the whole output in memory.
      */
-    async embed(ffmetadata, meta = {}) {
+    embed(ffmetadata, meta = {}) { return inTurn(() => handle.embedNow(ffmetadata, meta)); },
+    async embedNow(ffmetadata, meta = {}) {
       const f = await nextEngine();
       await f.writeFile('/chapters.ffmeta', ffmetadata);
       const out = '/export' + ext;
@@ -225,7 +239,8 @@ export async function openAudio(source) {
       await f.deleteFile('/chapters.ffmeta');
       return new Blob([bytes], { type: parts[0].file.type || 'application/octet-stream' });
     },
-    async close() {
+    close() { return inTurn(() => handle.closeNow()); },
+    async closeNow() {
       mounts.delete(dir);
       try { const f = await engine(); await f.unmount(dir); await f.deleteDir(dir); } catch { /* already gone */ }
     },

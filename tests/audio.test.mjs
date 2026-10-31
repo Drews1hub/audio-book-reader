@@ -188,3 +188,19 @@ test('saving a file that also has a cover picture and a text track works', { ski
     } finally { await saved.close(); }
   } finally { await audio.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('reads started at the same moment take turns and each gets the right audio', async () => {
+  const audio = await openAudio([tone('a.wav', 2, 1000), tone('b.wav', 2, 2000), tone('c.wav', 2, 3000)]);
+  try {
+    await audio.duration();
+    const asks = [[0.2, 1000], [2.3, 2000], [4.4, 3000], [1.0, 1000], [3.0, 2000], [5.0, 3000], [0.5, 1000], [2.9, 2000]];
+    const results = await Promise.all(asks.map(([at]) => audio.decode(at, 0.5)));
+    results.forEach((s, i) => {
+      assert.equal(s.length, 8000, `read ${i} has its full length`);
+      assert.equal(Math.round(s[4000] * 32768), asks[i][1], `read ${i} got the audio from ${asks[i][0]} s`);
+    });
+    // a restart of the engine (every 50 runs) must not land in the middle of someone else's read
+    const many = await Promise.all(Array.from({ length: 130 }, (_, i) => audio.decode((i % 5) + 0.1, 0.25)));
+    many.forEach((s, i) => assert.equal(s.length, 4000, `read ${i} complete`));
+  } finally { await audio.close(); }
+});
