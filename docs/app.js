@@ -1,6 +1,6 @@
 import { openAudio } from './js/audio.js';
 import { formatFileSize } from './js/file-info.js';
-import { Whisper, listen } from './js/listen.js';
+import { WhisperPool, listen, pickWorkers } from './js/listen.js';
 import { fmtTime, toCue, toFfmetadata } from './js/chapters.js';
 
 const $ = (id) => document.getElementById(id);
@@ -215,7 +215,11 @@ async function run(mode, from = 0, initial = []) {
 
 async function listenRun(mode, from, initial) {
   if (mode !== 'pauses') {
-    whisper = new Whisper();
+    // Several speech workers listen to different parts of the book at once (see pickWorkers for how many).
+    whisper = new WhisperPool(pickWorkers({
+      cores: navigator.hardwareConcurrency, memoryGB: navigator.deviceMemory,
+      gpu: $('gpu').checked, chosen: +$('cores').value,
+    }));
     const model = book.model = (from > 0 && book.model) || $('model').value;
     const sizes = new Map();
     whisper.onDownload = ({ file: name, loaded, total }) => {
@@ -225,7 +229,7 @@ async function listenRun(mode, from, initial) {
       showProgress('Downloading the speech model…', `${(l / 1e6).toFixed(0)} of ${(t / 1e6).toFixed(0)} MB. One time only; your browser keeps it.`, t ? l / t : null);
     };
     whisper.onNote = (m) => { $('detail').textContent = m; };
-    showProgress('Loading the speech model…');
+    showProgress(whisper.size > 1 ? `Loading the speech model (${whisper.size} workers)…` : 'Loading the speech model…');
     try {
       await whisper.load(model, $('gpu').checked);
     } catch (e) {

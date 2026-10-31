@@ -46,6 +46,17 @@
           </select>
         </label>
       </div>
+      <div class="control-row">
+        <label class="field">Processor cores (more is faster, uses more memory)
+          <select id="cores">
+            <option value="0" selected>Automatic</option>
+            <option value="1">1 (slowest, least memory)</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4 (fastest)</option>
+          </select>
+        </label>
+      </div>
       <label class="check" id="gpuRow" hidden><input type="checkbox" id="gpu"> Try GPU acceleration (experimental, bigger download)</label>
       <p class="muted small">English audiobooks. A 10-hour book takes roughly 10–20 minutes in Quick mode, or 2–3 hours in Thorough mode
         (use Thorough if chapters start without a pause, e.g. after music). Keep this tab open while it listens; if it gets

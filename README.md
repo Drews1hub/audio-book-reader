@@ -38,7 +38,9 @@ ffmpeg, so chapters can be found and saved even without the player.
 Publish: repository **Settings → Pages → Build and deployment → Deploy from a branch**, pick the branch and the
 `/docs` folder. Try it locally with `cd docs && python3 -m http.server`.
 
-Recognition runs on the CPU in one thread (GitHub Pages can't enable multi-threading). The GPU option (WebGPU) is
+Recognition runs on the CPU. GitHub Pages can't enable multi-threading, so instead several speech workers (one per two
+cores, up to 3 by default, fewer on low-memory computers; the *Processor cores* setting overrides it) listen to
+different ten-minute stretches of the book at the same time. Each worker holds its own copy of the model. The GPU option (WebGPU) is
 experimental and untested.
 Tests: `node --test tests/*.test.mjs`.
 

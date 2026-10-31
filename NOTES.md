@@ -39,6 +39,9 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
 - Saved files carry **Title/Author** (fields on the page) as title, album, artist, album_artist, genre=Audiobook and,
   for .m4b, iTunes' audiobook flag (`bookTags`). Tags are set with `-metadata`; don't go back to `-map_metadata 1`,
   which replaced every existing tag and is why iTunes showed "Unknown Artist / Unknown Album".
+- Listening is parallel: `WhisperPool` (several speech workers, `pickWorkers` decides how many) and `inOrder` in
+  listen.js read windows one at a time but recognise several at once, and commit results strictly in book order so
+  the chapter list, "What it heard" and the resume point never run ahead of each other. Don't commit out of order.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test
