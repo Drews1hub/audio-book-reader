@@ -189,17 +189,37 @@ export async function openAudio(source) {
       // Chapters come from the ffmetadata file; title/author are set with -metadata. Not `-map_metadata 1`, which
       // would replace every tag the file already has (artist, album, …) with the few in that list.
       const tags = bookTags(meta, ext).flatMap(([k, v]) => ['-metadata', `${k}=${v}`]);
-      const args = multi
-        ? ['-f', 'concat', '-safe', '0', '-i', '/list.txt', '-i', '/chapters.ffmeta', '-map', '0:a',
-          '-map_chapters', '1', ...tags, '-c', 'copy', out]
-        : ['-i', parts[0].input, '-i', '/chapters.ffmeta', '-map', '0',
-          '-map_chapters', '1', ...tags, '-c', 'copy', out];
+      // Only the audio and the cover picture are copied. Audiobooks from iTunes/Apple Books often carry extra tracks
+      // (a text track with the chapter names, data tracks) that ffmpeg can't put into the new file ("Tag text
+      // incompatible ... Could not write header"); the chapters are written from our own list anyway.
+      const source = multi ? ['-f', 'concat', '-safe', '0', '-i', '/list.txt'] : ['-i', parts[0].input];
+      const withChapters = ['-i', '/chapters.ffmeta'];
+      const rest = ['-map_chapters', '1', ...tags, '-c', 'copy', out];
       if (multi) await f.writeFile('/list.txt', parts.map((p) => `file '${p.input}'`).join('\n') + '\n');
-      const code = await f.exec(args);
-      if (multi) await f.deleteFile('/list.txt').catch(() => {});
-      if (code !== 0) throw new Error(multi
-        ? 'ffmpeg could not join these files (they may use different audio settings).'
-        : 'ffmpeg could not write the chapters into this file type.');
+      let log = '';
+      const onLog = ({ message }) => { log += message + '\n'; };
+      f.on('log', onLog);
+      handle.savedWithoutCover = false;
+      let code;
+      try {
+        // The cover is left out of the join (the tracks' covers are not one picture); a single file keeps its cover.
+        code = await f.exec([...source, ...withChapters, '-map', '0:a', ...(multi ? [] : ['-map', '0:v?']), ...rest]);
+        if (code !== 0 && !multi) {   // a cover that won't copy shouldn't stop the save
+          log = '';
+          code = await f.exec([...source, ...withChapters, '-map', '0:a', ...rest]);
+          handle.savedWithoutCover = code === 0;
+        }
+      } finally {
+        f.off('log', onLog);
+        if (multi) await f.deleteFile('/list.txt').catch(() => {});
+      }
+      if (code !== 0) {
+        const why = log.split('\n').map((l) => l.trim())
+          .filter((l) => l && !/^(ffmpeg version|built with|configuration:|lib\w+ |Stream mapping|Press |Output #|Input #|  |frame=|size=)/.test(l))
+          .slice(-3).join(' · ');
+        await f.deleteFile('/chapters.ffmeta').catch(() => {});
+        throw new Error(`${multi ? 'ffmpeg could not join these files (they may use different audio settings)' : 'ffmpeg could not save this file'}${why ? `: ${why}` : '.'}`);
+      }
       const bytes = await f.readFile(out);
       await f.deleteFile(out);
       await f.deleteFile('/chapters.ffmeta');

@@ -516,7 +516,8 @@ $('exAudio').onclick = async () => {
     book.savedAs = safeName() + audioHandle.ext;
     download(blob, book.savedAs);
     $('saveText').textContent = `Saved “${book.savedAs}” to your Downloads folder. Open that copy in Apple Books, VLC or another `
-      + 'audiobook player to see the chapter titles (your original is unchanged).';
+      + 'audiobook player to see the chapter titles (your original is unchanged).'
+      + (audioHandle.savedWithoutCover ? ' The cover picture could not be copied, so it was left out.' : '');
     $('saveBox').hidden = false;
   } catch (e) { alert(`Couldn't write the file: ${e.message || e}\nTry the ffmetadata or CUE export instead.`); }
   btn.disabled = $('saveNow').disabled = false; btn.textContent = label; $('saveNow').textContent = label2; busy = false;

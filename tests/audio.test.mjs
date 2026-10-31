@@ -156,3 +156,35 @@ test('saving writes title and author, so players do not say "Unknown Artist / Un
     } finally { await saved.close(); }
   } finally { await audio.close(); }
 });
+
+// Added by Claude: audiobooks from iTunes/Apple Books often carry a text track and a cover picture next to the audio.
+// Copying every track used to fail ("Tag text incompatible with output codec ... Could not write header").
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+
+const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+test('saving a file that also has a cover picture and a text track works', { skip: !hasFfmpeg && 'needs ffmpeg on the PATH to make the sample' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'abr-rich-'));
+  const run = (...a) => assert.equal(spawnSync('ffmpeg', ['-y', '-v', 'error', ...a], { cwd: dir }).status, 0);
+  fs.writeFileSync(path.join(dir, 'a.wav'), Buffer.from(await tone('a.wav', 3, 800).arrayBuffer()));
+  fs.writeFileSync(path.join(dir, 'c.srt'), '1\n00:00:00,000 --> 00:00:03,000\nChapter 1\n');
+  run('-f', 'lavfi', '-i', 'color=c=blue:s=64x64', '-frames:v', '1', 'cover.jpg');
+  fs.writeFileSync(path.join(dir, 'c.ffmeta'), ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=3000\ntitle=Original\n');
+  // With chapters in the file, ffmpeg writes the QuickTime chapter track that iTunes uses (it shows up as a data stream).
+  run('-i', 'a.wav', '-i', 'cover.jpg', '-i', 'c.srt', '-i', 'c.ffmeta', '-map', '0:a', '-map', '1:v', '-map', '2:s', '-map_chapters', '3',
+    '-c:a', 'aac', '-c:v', 'copy', '-c:s', 'mov_text', '-disposition:v:0', 'attached_pic', '-f', 'mp4', 'rich.m4b');
+  const audio = await openAudio(new File([fs.readFileSync(path.join(dir, 'rich.m4b'))], 'rich.m4b'));
+  try {
+    assert.ok(await audio.duration() > 2);
+    const ffmeta = ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=One\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=1500\nEND=3000\ntitle=Two\n';
+    const blob = await audio.embed(ffmeta, { title: 'Rise of The Fallen', author: 'Chuck Black' });
+    const saved = await openAudio(new File([blob], 'saved.m4b'));
+    try {
+      const info = await saved.probe();
+      assert.deepEqual(info.chapters.map((c) => c.title), ['One', 'Two']);
+      assert.equal(info.tags.artist, 'Chuck Black');
+      assert.equal(info.tags.album, 'Rise of The Fallen');
+    } finally { await saved.close(); }
+  } finally { await audio.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

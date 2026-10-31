@@ -42,6 +42,10 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
 - Listening is parallel: `WhisperPool` (several speech workers, `pickWorkers` decides how many) and `inOrder` in
   listen.js read windows one at a time but recognise several at once, and commit results strictly in book order so
   the chapter list, "What it heard" and the resume point never run ahead of each other. Don't commit out of order.
+- Saving copies only the audio (+ cover picture for single files), never `-map 0`: iTunes/Apple Books audiobooks carry a
+  QuickTime chapter track that shows up as a data stream, and copying it fails with "Tag text incompatible with output
+  codec ... Could not write header" (the owner hit this). Chapters are written from our own list. The test that covers
+  it (tests/audio.test.mjs, needs ffmpeg on the PATH) fails on the old code.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test
