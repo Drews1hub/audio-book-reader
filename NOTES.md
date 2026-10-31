@@ -62,6 +62,8 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
   word, which put markers on the last syllable before a chapter (or, after music, seconds late). See `startOf` in
   `findAnnouncements`; the marker sits 0.3 s inside the quiet pause so a music fade-in keeps its start, and the ▶ preview
   plays from the marker exactly. Checked with spoken audio + synthetic music: within 0.06 s of the true start.
+- Each chapter row has a ± button: type seconds (negative = earlier) and the start moves by that much, then plays from
+  the new start (`openNudge` in app.js). The start is clamped to the book and the list is re-sorted.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test

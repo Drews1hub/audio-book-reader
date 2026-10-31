@@ -482,6 +482,36 @@ async function previewChapter(chapter, button, row) {
   previewing = { button, row, timer: setTimeout(stopPreview, PREVIEW_SECONDS * 1000) };
 }
 
+// ---------- moving a chapter's start by a few seconds ----------
+// The box takes seconds: -2 moves the start 2 s earlier, 1.5 moves it 1.5 s later. It is applied to the chapter's own
+// start, then the new start plays, so the change can be heard straight away.
+function openNudge(row, chapter, index) {
+  document.querySelectorAll('.nudgebox').forEach((b) => b.remove());
+  const box = document.createElement('div');
+  box.className = 'nudgebox';
+  box.innerHTML = '<label>Move start by <input type="number" step="0.5" inputmode="decimal" value="0" aria-label="Seconds to move the start (negative is earlier)"> seconds</label>'
+    + '<span class="muted small">(negative = earlier, positive = later)</span>'
+    + '<button class="primary apply">Move and play</button><button class="ghost cancel">Cancel</button>';
+  row.after(box);
+  const input = box.querySelector('input');
+  input.focus(); input.select();
+  const close = () => box.remove();
+  const apply = () => {
+    const by = Number(input.value);
+    if (!Number.isFinite(by)) { input.focus(); return; }
+    const next = Math.max(0, Math.round((chapter.start + by) * 100) / 100);
+    if (next >= book.duration) { input.focus(); return; }
+    chapter.start = next;
+    book.chapters.sort((x, y) => x.start - y.start);
+    persist(); close(); renderChapters();
+    const row2 = document.querySelectorAll('li.ch')[book.chapters.indexOf(chapter)];
+    if (row2) previewChapter(chapter, row2.querySelector('.hear'), row2);   // hear the new start right away
+  };
+  box.querySelector('.apply').onclick = apply;
+  box.querySelector('.cancel').onclick = close;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } if (e.key === 'Escape') close(); };
+}
+
 function renderChapters(flash = -1) {
   cancelPreview();
   const ol = $('chapters');
@@ -491,8 +521,10 @@ function renderChapters(flash = -1) {
     li.className = 'ch' + (i === flash ? ' new' : '');
     li.innerHTML = '<span class="num"></span><button class="time"></button><input type="text" aria-label="Chapter title">'
       + '<button class="hear" title="Listen to the start of this chapter" aria-label="Listen to the start of this chapter">▶</button>'
+      + '<button class="nudge" title="Move this chapter’s start earlier or later" aria-label="Move this chapter’s start earlier or later">±</button>'
       + '<button class="del" title="Remove chapter" aria-label="Remove chapter">✕</button>';
-    const [num, time, input, hear, del] = li.children;
+    const [num, time, input, hear, nudge, del] = li.children;
+    nudge.onclick = () => openNudge(li, c, i);
     num.textContent = i + 1;
     time.textContent = fmtTime(c.start);
     time.onclick = () => { cancelPreview(); seekTo(c.start, true); };

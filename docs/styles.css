@@ -68,6 +68,12 @@ li.ch input { flex:1; min-width:0; min-height:40px; padding:0 10px; border:1px s
 li.ch input:focus { border-color:var(--border); background:var(--fill); }
 li.ch .del { min-height:36px; padding:0 10px; background:none; color:var(--muted); }
 li.ch .hear { min-height:36px; min-width:40px; padding:0 10px; background:none; color:var(--accent-link); }
+li.ch .nudge { min-height:36px; min-width:40px; padding:0 10px; background:none; color:var(--accent-link); }
+.nudgebox { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-2px 0 8px 40px; padding:10px 12px; border-radius:12px; background:var(--fill); }
+.nudgebox label { display:flex; align-items:center; gap:6px; }
+.nudgebox input { width:6.5em; min-height:36px; padding:0 8px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+.nudgebox .small { margin:0; }
+.nudgebox button { min-height:36px; }
 li.ch.previewing { box-shadow:inset 3px 0 0 var(--accent); }
 li.ch.new { animation:flash 1.6s ease-out; }
 @keyframes flash { from { background:var(--accent-soft); } }
