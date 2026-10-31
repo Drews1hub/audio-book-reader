@@ -50,6 +50,9 @@ Libraries are vendored in `docs/vendor/` (no CDN) and the Whisper models are hos
   (the owner hit this, likely iTunes/Books moving it), Chrome throws NotFoundError from FileReaderSync. `missingFile()`
   checks before saving and `lostMessage` explains it. Saved results are keyed by name + size (`abr:v2:`), not modified
   time, so dropping a moved/copied file again restores its chapters (older `abr:v1:` keys are still read).
+- Each chapter row has a ▶ that plays its first 15 s (`previewChapter`) so a missed title can be typed by ear; Enter in a
+  title box moves to the next chapter and plays it. Anything else that takes over playback calls `cancelPreview()` so
+  the clip's timer can't pause it later.
 - Headings can be a bare number ("Twelve.") after a long pause, not only "Chapter Twelve" (`bareNumberAt`).
 
 ## Test

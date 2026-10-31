@@ -67,6 +67,8 @@ li.ch .time { min-height:36px; min-width:64px; padding:0 8px; background:none; c
 li.ch input { flex:1; min-width:0; min-height:40px; padding:0 10px; border:1px solid transparent; border-radius:10px; background:transparent; }
 li.ch input:focus { border-color:var(--border); background:var(--fill); }
 li.ch .del { min-height:36px; padding:0 10px; background:none; color:var(--muted); }
+li.ch .hear { min-height:36px; min-width:40px; padding:0 10px; background:none; color:var(--accent-link); }
+li.ch.previewing { box-shadow:inset 3px 0 0 var(--accent); }
 li.ch.new { animation:flash 1.6s ease-out; }
 @keyframes flash { from { background:var(--accent-soft); } }
 .export { border-top:1px solid var(--border); padding-top:16px; margin-top:18px; }

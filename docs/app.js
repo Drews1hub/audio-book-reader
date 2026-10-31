@@ -424,9 +424,9 @@ function syncTransport() {
   if (!scrubbing) $('tSeek').value = Math.floor(t);
   $('tTime').textContent = `${fmtTime(scrubbing ? +$('tSeek').value : t)} / ${fmtTime(book.duration)}`;
 }
-$('tPlay').onclick = () => { const el = $('audio'); if (el.paused) el.play().catch(() => {}); else el.pause(); };
+$('tPlay').onclick = () => { cancelPreview(); const el = $('audio'); if (el.paused) el.play().catch(() => {}); else el.pause(); };
 $('tSeek').oninput = () => { scrubbing = true; syncTransport(); };
-$('tSeek').onchange = async () => { await seekTo(+$('tSeek').value); scrubbing = false; syncTransport(); };
+$('tSeek').onchange = async () => { cancelPreview(); await seekTo(+$('tSeek').value); scrubbing = false; syncTransport(); };
 $('audio').onplay = $('audio').onpause = syncTransport;
 
 // ---------- what it heard after each pause ----------
@@ -459,17 +459,50 @@ function currentIndex() {
   return idx;
 }
 
+// ---------- listening to the start of a chapter, to type its title ----------
+const PREVIEW_SECONDS = 15;
+let previewing = null;      // { button, row, timer } while a start-of-chapter clip is playing
+function cancelPreview() {  // forget the clip without touching playback (something else is taking over)
+  if (!previewing) return;
+  clearTimeout(previewing.timer);
+  previewing.button.textContent = '▶';
+  previewing.button.setAttribute('aria-label', 'Listen to the start of this chapter');
+  previewing.row.classList.remove('previewing');
+  previewing = null;
+}
+function stopPreview() { if (previewing) { $('audio').pause(); cancelPreview(); } }
+async function previewChapter(chapter, button, row) {
+  cancelPreview();
+  await seekTo(Math.max(0, chapter.start - 0.5), true);
+  button.textContent = '■';
+  button.setAttribute('aria-label', 'Stop listening');
+  row.classList.add('previewing');
+  previewing = { button, row, timer: setTimeout(stopPreview, PREVIEW_SECONDS * 1000) };
+}
+
 function renderChapters(flash = -1) {
+  cancelPreview();
   const ol = $('chapters');
   ol.innerHTML = '';
   book.chapters.forEach((c, i) => {
     const li = document.createElement('li');
     li.className = 'ch' + (i === flash ? ' new' : '');
-    li.innerHTML = '<span class="num"></span><button class="time"></button><input type="text" aria-label="Chapter title"><button class="del" title="Remove chapter" aria-label="Remove chapter">✕</button>';
-    const [num, time, input, del] = li.children;
+    li.innerHTML = '<span class="num"></span><button class="time"></button><input type="text" aria-label="Chapter title">'
+      + '<button class="hear" title="Listen to the start of this chapter" aria-label="Listen to the start of this chapter">▶</button>'
+      + '<button class="del" title="Remove chapter" aria-label="Remove chapter">✕</button>';
+    const [num, time, input, hear, del] = li.children;
     num.textContent = i + 1;
     time.textContent = fmtTime(c.start);
-    time.onclick = () => seekTo(c.start, true);
+    time.onclick = () => { cancelPreview(); seekTo(c.start, true); };
+    hear.hidden = !playable;
+    hear.onclick = () => (hear === previewing?.button ? stopPreview() : previewChapter(c, hear, li));
+    // Enter in a title box: on to the next chapter, playing its start, so a run of titles can be typed without the mouse
+    input.onkeydown = (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const next = ol.children[i + 1];
+      if (next) { next.querySelector('input').focus(); next.querySelector('.hear').click(); } else stopPreview();
+    };
     input.value = c.title;
     input.oninput = () => { c.title = input.value; book.source = book.source === 'speech' ? 'speech' : 'manual'; queueSave(); };
     del.onclick = () => { book.chapters.splice(i, 1); persist(); renderChapters(); };
@@ -486,11 +519,12 @@ function highlight() {
 $('audio').ontimeupdate = () => { highlight(); syncTransport(); };
 $('speed').onchange = (e) => { $('audio').defaultPlaybackRate = $('audio').playbackRate = +e.target.value; };
 $('prev').onclick = () => {
+  cancelPreview();
   const i = currentIndex();
   const target = i >= 0 && getTime() - book.chapters[i].start > 3 ? i : Math.max(0, i - 1);
   seekTo(book.chapters[target]?.start ?? 0);
 };
-$('next').onclick = () => { const n = book.chapters[currentIndex() + 1]; if (n) seekTo(n.start); };
+$('next').onclick = () => { cancelPreview(); const n = book.chapters[currentIndex() + 1]; if (n) seekTo(n.start); };
 $('mark').onclick = () => {
   book.chapters.push({ start: Math.round(getTime() * 100) / 100, title: 'New chapter' });
   book.chapters.sort((a, b) => a.start - b.start);
